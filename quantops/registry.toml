@@ -9,21 +9,27 @@ prefixes = [
 [prefix_systems.UpperSI]
 prefixes = [
   { factor = 1e6, long = "mega", short = "M" },
-  { factor = 1e9, long = "giga", short = "G" }
+  { factor = 1e9, long = "giga", short = "G" },
+  { factor = 1e12, long = "tera", short = "T" },
+  { factor = 1e15, long = "peta", short = "P" }
 ]
 
 [prefix_systems.LowerSI]
 prefixes = [
   { factor = 1e-3, long = "milli", short = "m" },
   { factor = 1e-6, long = "micro", short = "µ" },
-  { factor = 1e-9, long = "nano", short = "n" }
+  { factor = 1e-9, long = "nano", short = "n" },
+  { factor = 1e-12, long = "pico", short = "p" },
+  { factor = 1e-15, long = "femto", short = "f" }
 ]
 
 [prefix_systems.BinaryMemory]
 prefixes = [
   { factor = 1_024, long = "kibi", short = "Ki" },
   { factor = 1_048_576, long = "mebi", short = "Mi" },
-  { factor = 1_073_741_824, long = "gibi", short = "Gi" }
+  { factor = 1_073_741_824, long = "gibi", short = "Gi" },
+  { factor = 1_099_511_627_776, long = "tebi", short = "Ti" },
+  { factor = 1_125_899_906_842_624, long = "pebi", short = "Pi" }
 ]
 
 [dimensions.length]
@@ -51,6 +57,12 @@ prefixes = [
   systems = ["USCS"]
   value = 1_609.344
 
+[dimensions.volume]
+  [[dimensions.volume.units]]
+  long = "liter"
+  short = "l"
+  prefixes = ["LowerSI"]
+
 [dimensions.memory]
   [[dimensions.memory.units]]
     long = "byte"
@@ -64,13 +76,53 @@ prefixes = [
     prefixes = ["BinaryMemory"]
     variants = { binary_memory = true }
 
-[dimension.time]
+[dimensions.time]
   [[dimensions.time.units]]
     long = "second"
     short = "s"
-    other = ["sec"]
+    prefixes = ["LowerSI"]
 
   [[dimensions.time.units]]
     long = "minute"
     short = "min"
     value = 60
+
+  [[dimensions.time.units]]
+    long = "hour"
+    short = "hr"
+    value = 3600
+
+  [[dimensions.time.units]]
+    long = "day"
+    short = "d"
+    value = 86_400
+
+  [[dimensions.time.units]]
+    long = "year"
+    short = "y"
+    value = 31_536_000
+
+[dimensions.temperature]
+  [[dimensions.temperature.units]]
+    long = "kelvin"
+    short = "K"
+    variants = { temperature = "kelvin" }
+
+  [[dimensions.temperature.units]]
+    long = "Celsius degree"
+    short = "degC"
+    offset = 273.15
+    variants = { temperature = "celsius" }
+
+  [[dimensions.temperature.units]]
+    long = "Fahrenheit degree"
+    short = "degF"
+    # short = "°F"
+    offset = 255.372222
+    value = 0.555556
+    variants = { temperature = "fahrenheit" }
+
+
+# x [in sec] = y [in min] * 60
+# x [in K]   = y [in °C] + 273.15
+# x [in K]   = y [in °F] + 459.67

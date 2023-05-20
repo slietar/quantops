@@ -1,6 +1,7 @@
+import functools
+import tomllib
 from dataclasses import dataclass, field
 from pprint import pprint
-import tomllib
 from typing import IO, Any, Literal, NewType, Optional, Self, final, overload
 
 
@@ -36,31 +37,42 @@ def format_superscript(number: float | int, /):
 
 
 @final
+@functools.total_ordering
 @dataclass(frozen=True)
 class Quantity:
   dimensionality: Dimensionality
   registry: 'UnitRegistry' = field(repr=False)
   value: float
 
-  def __eq__(self, other: Self, /):
-    if self.registry is not other.registry:
-      raise ValueError("Operation with different registries")
-
+  def _check_other_dimensionality(self, other: Self, /):
     if self.dimensionality != other.dimensionality:
       raise ValueError("Operation with different dimensionalities")
 
+  def _check_other_registry(self, other: 'CompositeUnit | Self', /):
+    if self.registry is not other.registry:
+      raise ValueError("Operation with different registries")
+
+  def __hash__(self):
+    return hash((frozenset(sorted(self.dimensionality.items())), self.registry, self.value))
+
+  def __eq__(self, other: Self, /):
+    self._check_other_dimensionality(other)
+    self._check_other_registry(other)
+
     return self.value == other.value
 
+  def __lt__(self, other: Self, /):
+    self._check_other_dimensionality(other)
+    self._check_other_registry(other)
+
+    return self.value < other.value
 
   def __add__(self, other: Self | float | int, /):
     if isinstance(other, (float, int)):
       return self + self.registry.dimensionless(other)
 
-    if self.registry is not other.registry:
-      raise ValueError("Operation with different registries")
-
-    if self.dimensionality != other.dimensionality:
-      raise ValueError("Operation with different dimensionalities")
+    self._check_other_dimensionality(other)
+    self._check_other_registry(other)
 
     return Quantity(
       dimensionality=self.dimensionality,
@@ -72,8 +84,7 @@ class Quantity:
     if isinstance(other, (float, int)):
       return self * self.registry.dimensionless(other)
 
-    if self.registry is not other.registry:
-      raise ValueError("Operation with different registries")
+    self._check_other_registry(other)
 
     return Quantity(
       dimensionality=compose_dimensionalities(self.dimensionality, other.dimensionality),
@@ -85,8 +96,7 @@ class Quantity:
     if isinstance(other, (float, int)):
       return self / self.registry.dimensionless(other)
 
-    if self.registry is not other.registry:
-      raise ValueError("Operation with different registries")
+    self._check_other_registry(other)
 
     return Quantity(
       dimensionality=compose_dimensionalities(self.dimensionality, other.dimensionality, factor=-1),
@@ -129,15 +139,15 @@ class Quantity:
         continue
 
       unit = next(unit for unit in self.registry._units if unit_matches(dimension, unit))
-
-      # unit = self.registry._units_by_name['min']
       value /= unit.value ** factor
 
       output_units.append((unit, factor))
 
+    has_offset = (len(self.dimensionality) == 1) and (var_dimension_factor == 1.0)
+
     # print(var_dimension_factor)
-    var_dimension_units = list((unit, value / unit.value ** var_dimension_factor) for unit in self.registry._units if unit_matches(var_dimension, unit))
-    var_dimension_unit, value = sorted([(unit, quant) for unit, quant in var_dimension_units if quant > 1], key=(lambda item: item[1]))[0]
+    var_dimension_units = list((unit, (value - (unit.offset if has_offset else 0.0)) / unit.value ** var_dimension_factor) for unit in self.registry._units if unit_matches(var_dimension, unit))
+    var_dimension_unit, value = sorted([(unit, quant) for unit, quant in var_dimension_units], key=(lambda item: (abs(item[1]) < 1.0, item[1])))[0]
     # pprint(var_dimension_unit)
 
     output_units.append((var_dimension_unit, var_dimension_factor))
@@ -238,10 +248,23 @@ class CompositeUnit:
 class Unit(CompositeUnit):
   dimension: DimensionName
   long: str
+  offset: float
   registry: 'UnitRegistry' = field(repr=False)
   short: str
   systems: set[SystemName]
   variants: dict[str, str]
+
+  def __mul__(self, other: Quantity | Self | float | int, /):
+    if isinstance(other, (float, int)) and (self.offset != 0.0):
+      quantity = super().__mul__(other)
+
+      return Quantity(
+        dimensionality=self.dimensionality,
+        registry=self.registry,
+        value=(quantity.value + self.offset)
+      )
+
+    return super().__mul__(other)
 
   # def __mul__(self, other: 'CompositeUnit | Quantity | Self | float | int', /):
   #   return CompositeUnit(
@@ -295,6 +318,7 @@ class UnitRegistry:
             dimensionality={dimension_name: 1},
             dimension=dimension_name,
             long=data_unit['long'],
+            offset=data_unit.get('offset', 0.0),
             registry=registry,
             short=data_unit['short'],
             systems={SystemName(system) for system in data_unit.get('systems', ["SI"])},
@@ -325,6 +349,7 @@ class UnitRegistry:
               dimensionality=unit.dimensionality,
               dimension=unit.dimension,
               long=(data_prefix['long'] + unit.long),
+              offset=unit.offset,
               registry=registry,
               short=(data_prefix['short'] + unit.short),
               systems=unit.systems,
