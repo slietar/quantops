@@ -1,0 +1,76 @@
+[prefix_systems.SI]
+extend = ["LowerSI", "KiloSI", "UpperSI"]
+
+[prefix_systems.KiloSI]
+prefixes = [
+  { factor = 1e3, long = "kilo", short = "k" }
+]
+
+[prefix_systems.UpperSI]
+prefixes = [
+  { factor = 1e6, long = "mega", short = "M" },
+  { factor = 1e9, long = "giga", short = "G" }
+]
+
+[prefix_systems.LowerSI]
+prefixes = [
+  { factor = 1e-3, long = "milli", short = "m" },
+  { factor = 1e-6, long = "micro", short = "µ" },
+  { factor = 1e-9, long = "nano", short = "n" }
+]
+
+[prefix_systems.BinaryMemory]
+prefixes = [
+  { factor = 1_024, long = "kibi", short = "Ki" },
+  { factor = 1_048_576, long = "mebi", short = "Mi" },
+  { factor = 1_073_741_824, long = "gibi", short = "Gi" }
+]
+
+[dimensions.length]
+  [[dimensions.length.units]]
+  long = "meter"
+  other = ["metre"]
+  short = "m"
+  prefixes = ["LowerSI", "KiloSI"]
+
+  [[dimensions.length.units]]
+  long = "feet"
+  short = "ft"
+  systems = ["USCS"]
+  value = 0.3048
+
+  [[dimensions.length.units]]
+  long = "yard"
+  short = "yd"
+  systems = ["USCS"]
+  value = 0.9144
+
+  [[dimensions.length.units]]
+  long = "mile"
+  short = "mi"
+  systems = ["USCS"]
+  value = 1_609.344
+
+[dimensions.memory]
+  [[dimensions.memory.units]]
+    long = "byte"
+    short = "B"
+
+  [[dimensions.memory.units]]
+    prefixes = ["KiloSI", "UpperSI"]
+    variants = { binary_memory = false }
+
+  [[dimensions.memory.units]]
+    prefixes = ["BinaryMemory"]
+    variants = { binary_memory = true }
+
+[dimension.time]
+  [[dimensions.time.units]]
+    long = "second"
+    short = "s"
+    other = ["sec"]
+
+  [[dimensions.time.units]]
+    long = "minute"
+    short = "min"
+    value = 60

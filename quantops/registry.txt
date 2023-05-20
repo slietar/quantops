@@ -1,0 +1,51 @@
+Prefixes : SI
+@include LowerSI
+kilo = k = 1e-3
+
+Prefixes : LowerSI
+nano = n = 1e-9
+micro = µ = 1e-6
+
+Prefixes : BinaryMemory
+kibi = Ki = 2**10
+
+Dimension : [length]
+@prefixable meter = m = metre
+@system(USCS) yard = yd = 0.9144 * meter
+@system(USCS) foot = yard / 3
+
+Dimension : [time]
+second = s = sec
+minute = min = 60 * sec
+
+Dimension : [mass]
+@base kg
+@prefixable(LowerSI) gram = g
+ton = g**12
+
+Dimension : [dec_memory]
+B = byte
+@variant(memoryMode=decimal) @prefixed(SI) B
+@variant(memoryMode=binary) @prefixed(BinaryMemory) B
+@variant(bits) b = bit = byte / 8
+
+Dimension : [volume] = [length]**3
+@prefixable(LowerSI) liter = l = litre
+hl = hectoliter = 100 * l
+
+Dimension : [temperature]
+@prefixable kelvin = K
+@variant(regularTemp) @offset(273.15) degC = K
+@variant(regularTemp) @system(USCS) degF = ... * degC
+
+Dimension : [force] = [mass] * [length] / [time] ** 2
+@prefixable newton = N = kilogram * meter / second ** 2
+
+Dimension : [energy] = [force] * [length]
+@prefixable joule = J = newton * meter
+@variant(calories) calorie = cal = 4.184 * joule
+@variant(calories) kilocalorie = kcal = cal * 1000
+@variant(watthour) watt * hour = wh
+
+Dimension : [power] = [energy] / [time]
+watt = W = joule / second
