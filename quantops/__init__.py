@@ -254,6 +254,14 @@ class Unit(CompositeUnit):
   systems: set[SystemName]
   variants: dict[str, str]
 
+  @overload
+  def __mul__(self, other: Self, /) -> 'CompositeUnit':
+    ...
+
+  @overload
+  def __mul__(self, other: Quantity | float | int, /) -> Quantity:
+    ...
+
   def __mul__(self, other: Quantity | Self | float | int, /):
     if isinstance(other, (float, int)) and (self.offset != 0.0):
       quantity = super().__mul__(other)
@@ -273,6 +281,9 @@ class Unit(CompositeUnit):
   #     value=self.value
   #   ) * other
 
+class InvalidUnitNameError(Exception):
+  pass
+
 @final
 class UnitRegistry:
   def __init__(self):
@@ -287,6 +298,9 @@ class UnitRegistry:
     )
 
   def unit(self, name: str, /):
+    if not name in self._units_by_name:
+      raise InvalidUnitNameError(f"Invalid unit name: {name}")
+
     return self._units_by_name[name]
 
   def __getattribute__(self, name: str, /):
