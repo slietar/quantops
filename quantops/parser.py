@@ -1,157 +1,103 @@
 import ast
-from pathlib import Path
-from pprint import pprint
 import re
+from abc import ABC
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Literal, Optional
 
-from . import CompositeUnit, InvalidUnitNameError, Unit, UnitRegistry
+from snaptext import LocatedString, LocationArea
+
+from .core import CompositeUnit, InvalidUnitNameError, Unit, UnitRegistry
 
 
-REGEXP_SCALAR = re.compile(r"([+-])? *(?:\d* *\. *\d+|\d+(?: *\.)?)(?:e([+-])?(\d+))?")
+REGEXP_SCALAR = re.compile(r"([+-] *)?(?:\d* *\. *\d+|\d+(?: *\.)?)(?:e([+-])?(\d+))?")
 REGEXP_PUNCT = re.compile(r"\*\*|\*|/|\(|\)|\^")
 
 
+@dataclass(kw_only=True)
+class BaseToken(ABC):
+  area: LocationArea
+
 @dataclass
-class GroupOpenToken:
+class GroupOpenToken(BaseToken):
   pass
 
 @dataclass
-class GroupCloseToken:
+class GroupCloseToken(BaseToken):
   pass
 
 @dataclass
-class OpToken:
+class OpToken(BaseToken):
   value: Literal['mul', 'div', 'exp']
 
 @dataclass
-class ScalarToken:
+class ScalarToken(BaseToken):
   value: float | int
 
 @dataclass
-class UnitToken:
+class UnitToken(BaseToken):
   value: Unit
 
 Token = GroupCloseToken | GroupOpenToken | OpToken | ScalarToken | UnitToken
 
 
-ureg = UnitRegistry.load((Path(__file__).parent / "registry.toml").open("rb"))
+@dataclass
+class ParserError(Exception):
+  message: str
+  area: LocationArea
 
-def tokenize(input_value: str, /):
+
+def tokenize(input_value: LocatedString, registry: UnitRegistry):
   cursor = 0
   tokens = list[Token]()
 
   while cursor < len(input_value):
     forward_value = input_value[cursor:]
 
-    if (match := REGEXP_SCALAR.match(forward_value)):
+    if (match := forward_value.match_re(REGEXP_SCALAR)):
       cursor += match.span()[1]
+
       value = ast.literal_eval(match.group())
-      tokens.append(ScalarToken(value))
-    elif (match := REGEXP_PUNCT.match(forward_value)):
+      tokens.append(ScalarToken(value, area=match.area))
+    elif (match := forward_value.match_re(REGEXP_PUNCT)):
       cursor += match.span()[1]
 
       match match.group():
         case "*":
-          tokens.append(OpToken('mul'))
+          tokens.append(OpToken('mul', area=match.area))
         case "/":
-          tokens.append(OpToken('div'))
+          tokens.append(OpToken('div', area=match.area))
         case "**" | "^":
-          tokens.append(OpToken('exp'))
+          tokens.append(OpToken('exp', area=match.area))
         case "(":
-          tokens.append(GroupOpenToken())
+          tokens.append(GroupOpenToken(area=match.area))
         case ")":
-          tokens.append(GroupCloseToken())
+          tokens.append(GroupCloseToken(area=match.area))
     elif (match := re.match(" +", forward_value)):
       cursor += match.span()[1]
-    elif (match := re.match("[a-zA-Z]+", forward_value)):
+    elif (match := forward_value.match_re("[a-zA-Z]+")):
       cursor += match.span()[1]
       value = match.group()
 
       try:
-        unit = ureg.unit(value)
+        unit = registry.unit(value)
       except InvalidUnitNameError:
-        print(f"Unknown token '{match.group()}'")
+        raise ParserError(f"Invalid unit '{value}'", match.area)
       else:
-        tokens.append(UnitToken(unit))
-
-      # if (unit := UNITS.get(match.group())):
-      #   tokens.append(UnitToken(unit))
-      # else:
-      #   print(f"Unknown token '{match.group()}'")
+        tokens.append(UnitToken(unit, area=match.area))
     else:
-      raise Exception(f"Unknown token '{forward_value[0]}'")
+      raise ParserError("Invalid token", forward_value[0].area)
 
   return tokens
 
 
-# def analyze(tokens: list[Token], /):
-#   current_op: Optional[Literal['mul', 'div', 'exp']] = None
-#   current_scalar: Optional[float | int] = None
-#   current_unit: Optional[Unit] = None
-#   div_mode: Optional[bool] = None
-
-#   result: Optional[Quantity] = None
-
-#   def commit():
-#     nonlocal current_scalar, current_unit, result
-
-#     if current_op is not None:
-#       raise Exception("Invalid")
-#     elif (current_scalar is not None) and (current_unit is not None):
-#       increment =  current_scalar * current_unit
-
-#       if result is None:
-#         result = increment
-#       else:
-#         result += increment
-
-#       current_scalar = None
-#       current_unit = None
-#     elif (current_scalar is not None):
-#       result += current_scalar * ureg.dimensionless
-#     elif (current_unit is not None):
-#       raise Exception("Invalid")
-
-
-#   for token in tokens:
-#     match token:
-#       case OpToken(value) if current_unit:
-#         current_op = value
-#       case ScalarToken(value): # if (not current_scalar) and (not current_unit):
-#         commit()
-#         current_scalar = value
-#       case UnitToken(value) if (current_scalar is not None) and (current_unit is None):
-#         current_unit = value
-#       case UnitToken(value) if (current_unit is not None) and (current_op is not None):
-#         match current_op:
-#           case 'mul':
-#             current_unit *= value
-#           case 'div':
-#             current_unit /= value
-#           case 'exp':
-#             raise Exception()
-
-#         current_op = None
-#       case _:
-#         raise Exception("Invalid 3")
-
-#   commit()
-
-#   return result
-
-
-@dataclass
-class ParserError(Exception):
-  message: str
-  token: Optional[Token] = None
-
-
 @dataclass
 class TokenWalker:
-  cursor: int = field(default=0, init=False)
-  tokens: list[GroupOpenToken]
+  registry: UnitRegistry
+  source: LocatedString
+  tokens: list[Token]
 
+  cursor: int = field(default=0, init=False)
   groups: list[Token] = field(default_factory=list, init=False)
 
   def dec(self):
@@ -161,7 +107,10 @@ class TokenWalker:
     self.cursor += 1
 
   def peek(self):
-    return tokens[self.cursor] if (self.cursor < len(self.tokens)) else None
+    return self.tokens[self.cursor] if (self.cursor < len(self.tokens)) else None
+
+  def peek_area(self):
+    return next_token.area if (next_token := self.peek()) else self.source[-1].area
 
   def pop(self):
     token = self.peek()
@@ -169,8 +118,8 @@ class TokenWalker:
     return token
 
   def __iter__(self):
-    for _ in self.tokens[self.cursor:]:
-      yield self.pop()
+    while token := self.pop():
+      yield token
 
 
   def accept_base_unit(self):
@@ -200,7 +149,7 @@ class TokenWalker:
           exp = self.accept_scalar()
 
           if exp is None:
-            raise ParserError("Invalid token, expected scalar", self.peek())
+            raise ParserError("Invalid token, expected scalar", self.peek_area())
 
           current_unit **= exp
 
@@ -211,7 +160,7 @@ class TokenWalker:
             other_unit = self.accept_base_unit()
 
           if other_unit is None:
-            raise ParserError("Invalid token, expected unit", self.peek())
+            raise ParserError("Invalid token, expected unit", self.peek_area())
 
           match token:
             case OpToken('mul'):
@@ -221,19 +170,15 @@ class TokenWalker:
 
         case GroupCloseToken():
           if not self.groups:
-            raise ParserError("Invalid token, unexpected group close", token)
+            raise ParserError("Invalid token", token.area)
 
           self.groups.pop()
 
-          # current_unit *= other_unit
-
-        #   if value == 'mul':
-        #     base_unit *= self.accept_base_unit()
-        #   elif value == 'div':
-        #     base_unit /= self.accept_base_unit()
+        case _:
+          raise ParserError("Invalid token", token.area)
 
     if self.groups:
-      raise ParserError("Invalid token, expected group close", self.groups[-1])
+      raise ParserError("Unexpected EOF, expected matching closing parenthesis", self.groups[-1].area)
 
     return current_unit
 
@@ -274,73 +219,40 @@ class TokenWalker:
 
   def expect_eof(self):
     if (token := self.peek()):
-      raise ParserError("Expected EOF", token)
+      raise ParserError("Invalid token", token.area)
 
-def analyze(tokens: list[Token], /):
-  walker = TokenWalker(tokens)
-  x = walker.accept_quantity()
+def walk(tokens: list[Token], source: LocatedString, registry: UnitRegistry):
+  walker = TokenWalker(registry, source, tokens)
+
+  quantity = walker.accept_quantity()
+
+  if quantity is None:
+    raise ParserError("Invalid token", walker.peek_area())
+
   walker.expect_eof()
-  return x
 
-# def accept_quantity(walker: TokenWalker, /):
-#   match walker.peek():
-#     case ScalarToken(value):
-#       scalar = value
-#     case _:
-#       return None
-
-#   walker.pop()
-
-#   unit = accept_composite_unit(walker)
-#   return unit * scalar
-
-# def accept_base_unit(walker: TokenWalker, /):
-#   match walker.peek():
-#     case UnitToken(value):
-#       walker.pop()
-#       return value
-#     case _:
-#       return None
-
-# def accept_composite_unit(walker: TokenWalker, /):
-#   base_unit = accept_base_unit(walker)
-
-#   if base_unit:
+  return quantity
 
 
+def parse(raw_input_value: LocatedString | str, /, registry: UnitRegistry):
+  input_value = LocatedString(raw_input_value)
+  tokens = tokenize(input_value, registry)
+  return walk(tokens, input_value, registry)
 
 
-tokens = tokenize("-30.6e2 (meter * s)**-2.5 * (s^2)")
-pprint(tokens)
-print(analyze(tokens))
+__all__ = [
+  'ParserError'
+]
 
 
-# ----
+if __name__ == "__main__":
+  ureg = UnitRegistry.load((Path(__file__).parent / "registry.toml").open("rb"))
 
-
-"""
-REGEXP_SCALAR = regex.compile(r"^(\d+)(?:,(\d+))*$")
-
-def parse_scalar(value: str, /):
-  match = REGEXP_SCALAR.match(value)
-
-  if not match:
-    return None
-
-  factor = 0
-  result = 0
-
-  # for capture in [m.group]
-  # print(match.captures(2))
-  # print(repr(match.group(1)))
-  # print(repr(m))
-
-  for num in [match.group(1), *match.captures(2)][::-1]:
-    result += int(num) * (10 ** factor)
-    factor += len(num)
-
-  return result
-
-print(parse_scalar("123,5,6"))
-print(parse_scalar("123"))
-"""
+  try:
+    # print(parse("-3 km^-1", ureg))
+    print(parse("-3", ureg))
+    # print(parse("-30.6e2 (meter * s)**-2.5 * (s^2)", ureg))
+    # pprint(tokens)
+  except ParserError as e:
+    print(e.message)
+    print(e.area.format())
