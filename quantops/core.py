@@ -1,7 +1,8 @@
 import functools
+from pprint import pprint
 import tomllib
 from dataclasses import dataclass, field
-from typing import IO, Any, Literal, NewType, Optional, Self, final, overload
+from typing import IO, Any, Literal, NewType, NotRequired, Optional, Protocol, Required, Self, TypedDict, cast, final, overload, reveal_type
 
 
 SUPERSCRIPT_CHARS = {
@@ -19,9 +20,38 @@ SUPERSCRIPT_CHARS = {
 }
 
 DimensionName = NewType('DimensionName', str)
+PrefixSystemName = NewType('PrefixSystemName', str)
 SystemName = NewType('SystemName', str)
 
 Dimensionality = dict[DimensionName, float | int]
+
+
+class RegistryPrefixData(TypedDict):
+  factor: float
+  label: str
+  symbol: str
+
+class RegistryPrefixSystemData(TypedDict):
+  extend: NotRequired[list[PrefixSystemName]]
+  prefixes: NotRequired[list[RegistryPrefixData]]
+
+class RegistryUnitData(TypedDict):
+  dimensionality: Dimensionality
+  label: str | list[str]
+  label_names: NotRequired[list[str]]
+  symbol: str | list[str]
+  symbol_names: NotRequired[list[str]]
+  systems: list[SystemName]
+
+  prefixes: NotRequired[list[PrefixSystemName]]
+
+  offset: NotRequired[float]
+  value: NotRequired[float]
+
+class RegistryData(TypedDict):
+  prefix_systems: dict[PrefixSystemName, RegistryPrefixSystemData]
+  units: list[RegistryUnitData]
+
 
 
 def compose_dimensionalities(a: Dimensionality, b: Dimensionality, /, factor: int = 1):
@@ -245,13 +275,12 @@ class CompositeUnit:
 @final
 @dataclass(frozen=True)
 class Unit(CompositeUnit):
-  dimension: DimensionName
-  long: str
+  dimensionality: Dimensionality
+  label: tuple[str, str]
   offset: float
   registry: 'UnitRegistry' = field(repr=False)
-  short: str
+  symbol: tuple[str, str]
   systems: set[SystemName]
-  variants: dict[str, str]
 
   @overload
   def __mul__(self, other: Self, /) -> 'CompositeUnit':
@@ -281,6 +310,7 @@ class InvalidUnitNameError(Exception):
 class UnitRegistry:
   def __init__(self):
     self._units = list[Unit]()
+    self._unit_groups = dict[str, set[Unit]]()
     self._units_by_name = dict[str, Unit]()
 
   def dimensionless(self, value: float | int, /):
@@ -312,71 +342,52 @@ class UnitRegistry:
 
   @classmethod
   def load(cls, file: IO[bytes]):
-    data = tomllib.load(file)
+    data = cast(RegistryData, tomllib.load(file))
     # pprint(data)
 
-    # dimensions = dict[DimensionName, Dimension]()
+    def ensure_tuple(value: str | list[str], /):
+      return (value, value) if isinstance(value, str) else (value[0], value[1])
+
     registry = cls()
 
-    for data_dimension_name, data_dimension in data['dimensions'].items():
-      # dimensions[data_dimension['name']] = Dimensio
-      # pprint(data_dimension)
-      dimension_name = DimensionName(data_dimension_name)
+    for data_unit in data['units']:
+      unit = Unit(
+        dimensionality={DimensionName(dimension): power for dimension, power in data_unit['dimensionality'].items()},
+        label=ensure_tuple(data_unit['label']),
+        symbol=ensure_tuple(data_unit['symbol']),
+        offset=data_unit.get('offset', 0.0),
+        registry=registry,
+        systems={SystemName(system) for system in data_unit.get('systems', ["SI"])},
+        value=data_unit.get('value', 1.0)
+      )
 
-      for data_unit in data_dimension['units']:
-        if 'long' in data_unit:
-          unit = Unit(
-            dimensionality={dimension_name: 1},
-            dimension=dimension_name,
-            long=data_unit['long'],
-            offset=data_unit.get('offset', 0.0),
+      for name in [*data_unit.get('label_names', unit.label), *data_unit.get('symbol_names', unit.symbol)]:
+        registry._units_by_name[name] = unit
+
+      prefixsys_names = data_unit.get('prefixes', list())
+
+      while prefixsys_names:
+        prefixsys_name = prefixsys_names.pop()
+        data_prefixsys = data['prefix_systems'][prefixsys_name]
+
+        prefixsys_names += data_prefixsys.get('extend', list())
+
+        for data_prefix in data_prefixsys.get('prefixes', list()):
+          prefixed_unit = Unit(
+            dimensionality=unit.dimensionality,
+            offset=unit.offset,
+            label=(data_prefix['label'] + unit.label[0], data_prefix['label'] + unit.label[1]),
             registry=registry,
-            short=data_unit['short'],
-            systems={SystemName(system) for system in data_unit.get('systems', ["SI"])},
-            value=data_unit.get('value', 1.0),
-            variants=data_unit.get('variants', dict())
+            symbol=(data_prefix['symbol'] + unit.symbol[0], data_prefix['symbol'] + unit.symbol[1]),
+            systems=unit.systems,
+            value=(data_prefix['factor'] * unit.value)
           )
 
-          registry._units.append(unit)
-          registry._units_by_name[unit.short] = unit
-          registry._units_by_name[unit.long] = unit
+          for name in data_unit.get('label_names', unit.label):
+            registry._units_by_name[data_prefix['label'] + name] = prefixed_unit
 
-          for other_name in data_unit.get('other', list()):
-            registry._units_by_name[other_name] = unit
-        else:
-          unit = next(unit for unit in registry._units if (unit.dimension == dimension_name) and (unit.value == 1.0))
-
-
-        prefixsys_names = data_unit.get('prefixes', list())
-
-        while prefixsys_names:
-          prefixsys_name = prefixsys_names.pop()
-          data_prefixsys = data['prefix_systems'][prefixsys_name]
-
-          prefixsys_names += data_prefixsys.get('extend', list())
-
-          for data_prefix in data_prefixsys.get('prefixes', list()):
-            prefixed_unit = Unit(
-              dimensionality=unit.dimensionality,
-              dimension=unit.dimension,
-              long=(data_prefix['long'] + unit.long),
-              offset=unit.offset,
-              registry=registry,
-              short=(data_prefix['short'] + unit.short),
-              systems=unit.systems,
-              value=(data_prefix['factor'] * unit.value),
-              variants=data_unit.get('variants', dict())
-            )
-
-            registry._units.append(prefixed_unit)
-            registry._units_by_name[prefixed_unit.short] = prefixed_unit
-            registry._units_by_name[prefixed_unit.long] = prefixed_unit
-
-          # registry._units_by_name[prefix + data_unit['short']] = unit
-          # registry._units_by_name[prefix + data_unit['long']] = unit
-
-    # pprint(registry._units_by_name)
-    # pprint(registry._units_by_name.keys())
+          for name in data_unit.get('symbol_names', unit.symbol):
+            registry._units_by_name[data_prefix['symbol'] + name] = prefixed_unit
 
     return registry
 

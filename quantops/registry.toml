@@ -3,126 +3,53 @@ extend = ["LowerSI", "KiloSI", "UpperSI"]
 
 [prefix_systems.KiloSI]
 prefixes = [
-  { factor = 1e3, long = "kilo", short = "k" }
+  { factor = 1e3, label = "kilo", symbol = "k" }
 ]
 
 [prefix_systems.UpperSI]
 prefixes = [
-  { factor = 1e6, long = "mega", short = "M" },
-  { factor = 1e9, long = "giga", short = "G" },
-  { factor = 1e12, long = "tera", short = "T" },
-  { factor = 1e15, long = "peta", short = "P" }
+  { factor = 1e6, label = "mega", symbol = "M" },
+  { factor = 1e9, label = "giga", symbol = "G" },
+  { factor = 1e12, label = "tera", symbol = "T" },
+  { factor = 1e15, label = "peta", symbol = "P" }
 ]
 
 [prefix_systems.LowerSI]
 prefixes = [
-  { factor = 1e-3, long = "milli", short = "m" },
-  { factor = 1e-6, long = "micro", short = "µ" },
-  { factor = 1e-9, long = "nano", short = "n" },
-  { factor = 1e-12, long = "pico", short = "p" },
-  { factor = 1e-15, long = "femto", short = "f" }
+  { factor = 1e-3, label = "milli", symbol = "m" },
+  { factor = 1e-6, label = "micro", symbol = "µ" },
+  { factor = 1e-9, label = "nano", symbol = "n" },
+  { factor = 1e-12, label = "pico", symbol = "p" },
+  { factor = 1e-15, label = "femto", symbol = "f" }
 ]
 
 [prefix_systems.BinaryMemory]
 prefixes = [
-  { factor = 1_024, long = "kibi", short = "Ki" },
-  { factor = 1_048_576, long = "mebi", short = "Mi" },
-  { factor = 1_073_741_824, long = "gibi", short = "Gi" },
-  { factor = 1_099_511_627_776, long = "tebi", short = "Ti" },
-  { factor = 1_125_899_906_842_624, long = "pebi", short = "Pi" }
+  { factor = 1_024, label = "kibi", symbol = "Ki" },
+  { factor = 1_048_576, label = "mebi", symbol = "Mi" },
+  { factor = 1_073_741_824, label = "gibi", symbol = "Gi" },
+  { factor = 1_099_511_627_776, label = "tebi", symbol = "Ti" },
+  { factor = 1_125_899_906_842_624, label = "pebi", symbol = "Pi" }
 ]
 
-[dimensions.length]
-  [[dimensions.length.units]]
-  long = "meter"
-  other = ["metre"]
-  short = "m"
-  prefixes = ["LowerSI", "KiloSI"]
 
-  [[dimensions.length.units]]
-  long = "feet"
-  short = "ft"
-  systems = ["USCS"]
-  value = 0.3048
+[[units]]
+dimensionality = { length = 1 }
+label = ["meter", "meters"]
+label_names = ["meter", "meters", "metre", "metres"]
+symbol = "m"
+prefixes = ["LowerSI", "KiloSI"]
 
-  [[dimensions.length.units]]
-  long = "yard"
-  short = "yd"
-  systems = ["USCS"]
-  value = 0.9144
+[[units]]
+dimensionality = { length = 1, mass = 1, time = -2 }
+label = ["newton", "newtons"]
+symbol = "N"
+prefixes = ["LowerSI", "KiloSI", "UpperSI"]
 
-  [[dimensions.length.units]]
-  long = "mile"
-  short = "mi"
-  systems = ["USCS"]
-  value = 1_609.344
-
-[dimensions.volume]
-  [[dimensions.volume.units]]
-  long = "liter"
-  short = "l"
-  prefixes = ["LowerSI"]
-
-[dimensions.memory]
-  [[dimensions.memory.units]]
-    long = "byte"
-    short = "B"
-
-  [[dimensions.memory.units]]
-    prefixes = ["KiloSI", "UpperSI"]
-    variants = { binary_memory = false }
-
-  [[dimensions.memory.units]]
-    prefixes = ["BinaryMemory"]
-    variants = { binary_memory = true }
-
-[dimensions.time]
-  [[dimensions.time.units]]
-    long = "second"
-    short = "s"
-    prefixes = ["LowerSI"]
-
-  [[dimensions.time.units]]
-    long = "minute"
-    short = "min"
-    value = 60
-
-  [[dimensions.time.units]]
-    long = "hour"
-    short = "hr"
-    value = 3600
-
-  [[dimensions.time.units]]
-    long = "day"
-    short = "d"
-    value = 86_400
-
-  [[dimensions.time.units]]
-    long = "year"
-    short = "y"
-    value = 31_536_000
-
-[dimensions.temperature]
-  [[dimensions.temperature.units]]
-    long = "kelvin"
-    short = "K"
-    variants = { temperature = "kelvin" }
-
-  [[dimensions.temperature.units]]
-    long = "Celsius degree"
-    short = "degC"
-    offset = 273.15
-    variants = { temperature = "celsius" }
-
-  [[dimensions.temperature.units]]
-    long = "Fahrenheit degree"
-    short = "degF"
-    # short = "°F"
-    offset = 255.372222
-    value = 0.555556
-    variants = { temperature = "fahrenheit" }
-
-
-# x [in sec] = y [in min] * 60
-# x [in K]   = y [in °C] + 273.15
-# x [in K]   = y [in °F] + 459.67
+# [[units]]
+# dimensionality = { temperature = 1 }
+# label = ["Celsius degree", "Celsius degrees"]
+# label_names = []
+# offset = 273.15
+# symbol = "°C"
+# symbol_names = ["degC"]
