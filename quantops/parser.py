@@ -3,7 +3,7 @@ import re
 from abc import ABC
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from snaptext import LocatedString, LocationArea
 
@@ -11,7 +11,7 @@ from .core import CompositeUnit, InvalidUnitNameError, Unit, UnitRegistry
 
 
 REGEXP_SCALAR = re.compile(r"([+-] *)?(?:\d* *\. *\d+|\d+(?: *\.)?)(?:e([+-])?(\d+))?")
-REGEXP_PUNCT = re.compile(r"\*\*|\*|/|\(|\)|\^")
+REGEXP_PUNCT = re.compile(r"\*\*|\*|/|\(|\)|\^|±|\+-|-")
 
 
 @dataclass(kw_only=True)
@@ -28,7 +28,7 @@ class GroupCloseToken(BaseToken):
 
 @dataclass
 class OpToken(BaseToken):
-  value: Literal['mul', 'div', 'exp']
+  value: Literal['mul', 'div', 'exp', 'rng', 'unc']
 
 @dataclass
 class ScalarToken(BaseToken):
@@ -54,7 +54,7 @@ def tokenize(input_value: LocatedString, registry: UnitRegistry):
   while cursor < len(input_value):
     forward_value = input_value[cursor:]
 
-    if (match := forward_value.match_re(REGEXP_SCALAR)):
+    if ((not tokens) or not isinstance(tokens[-1], ScalarToken)) and (match := forward_value.match_re(REGEXP_SCALAR)):
       cursor += match.span()[1]
 
       value = ast.literal_eval(match.group())
@@ -69,6 +69,10 @@ def tokenize(input_value: LocatedString, registry: UnitRegistry):
           tokens.append(OpToken('div', area=match.area))
         case "**" | "^":
           tokens.append(OpToken('exp', area=match.area))
+        case "±" | "+-":
+          tokens.append(OpToken('unc', area=match.area))
+        case "-":
+          tokens.append(OpToken('rng', area=match.area))
         case "(":
           tokens.append(GroupOpenToken(area=match.area))
         case ")":
@@ -86,7 +90,7 @@ def tokenize(input_value: LocatedString, registry: UnitRegistry):
       else:
         tokens.append(UnitToken(unit, area=match.area))
     else:
-      raise ParserError("Invalid token", forward_value[0].area)
+      raise ParserError("Invalid value", forward_value[0].area)
 
   return tokens
 
@@ -182,20 +186,6 @@ class TokenWalker:
 
     return current_unit
 
-  # def accept_group(self):
-  #   if not isinstance(self.peek(), GroupOpenToken):
-  #     return None
-
-  #   self.inc()
-
-  #   tokens = list[Token]()
-  #   count = 0
-
-  #   for token in self:
-  #     match token:
-
-
-
   def accept_quantity(self):
     scalar = self.accept_scalar()
 
@@ -205,9 +195,49 @@ class TokenWalker:
     unit = self.accept_composite_unit()
 
     if unit is None:
-      return ureg.dimensionless(scalar)
+      return self.registry.dimensionless(scalar)
 
     return scalar * unit
+
+  def accept_measurement(self):
+    quantity = self.accept_quantity()
+
+    if quantity is None:
+      return None
+
+    match self.peek():
+      case OpToken('unc'):
+        self.inc()
+      case None:
+        return (quantity, )
+      case _:
+        raise ParserError("Invalid token, expected uncertainty operator or EOF", self.peek_area())
+
+    uncertainty = self.accept_quantity()
+
+    if uncertainty is None:
+      raise ParserError("Invalid token, expected uncertainty quantity", self.peek_area())
+
+    return (quantity, uncertainty)
+
+  def accept_range(self):
+    quantity = self.accept_quantity()
+
+    if quantity is None:
+      return None
+
+    match self.peek():
+      case OpToken('rng'):
+        self.inc()
+      case _:
+        raise ParserError("Invalid token, expected range operator", self.peek_area())
+
+    other_quantity = self.accept_quantity()
+
+    if other_quantity is None:
+      raise ParserError("Invalid token, expected range quantity", self.peek_area())
+
+    return (quantity, other_quantity)
 
   def accept_scalar(self):
     match self.peek():
@@ -221,38 +251,28 @@ class TokenWalker:
     if (token := self.peek()):
       raise ParserError("Invalid token", token.area)
 
-def walk(tokens: list[Token], source: LocatedString, registry: UnitRegistry):
-  walker = TokenWalker(registry, source, tokens)
+  def expect_only(self, value: Optional[Any], /):
+    if value is None:
+      raise ParserError("Invalid token", self.peek_area())
 
-  quantity = walker.accept_quantity()
+    self.expect_eof()
 
-  if quantity is None:
-    raise ParserError("Invalid token", walker.peek_area())
-
-  walker.expect_eof()
-
-  return quantity
+    return value
 
 
 def parse(raw_input_value: LocatedString | str, /, registry: UnitRegistry):
   input_value = LocatedString(raw_input_value)
   tokens = tokenize(input_value, registry)
-  return walk(tokens, input_value, registry)
+
+  # from pprint import pprint
+  # pprint(tokens)
+
+  walker = TokenWalker(registry, input_value, tokens)
+  return walker.expect_only(walker.accept_quantity())
+  # return walker.expect_only(walker.accept_measurement())
+  # return walker.expect_only(walker.accept_range())
 
 
 __all__ = [
   'ParserError'
 ]
-
-
-if __name__ == "__main__":
-  ureg = UnitRegistry.load((Path(__file__).parent / "registry.toml").open("rb"))
-
-  try:
-    # print(parse("-3 km^-1", ureg))
-    print(parse("-3", ureg))
-    # print(parse("-30.6e2 (meter * s)**-2.5 * (s^2)", ureg))
-    # pprint(tokens)
-  except ParserError as e:
-    print(e.message)
-    print(e.area.format())
