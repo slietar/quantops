@@ -46,6 +46,39 @@ label = ["newton", "newtons"]
 symbol = "N"
 prefixes = ["LowerSI", "KiloSI", "UpperSI"]
 
+[[units]]
+dimensionality = { time = 1 }
+label = ["second", "seconds"]
+symbol = "s"
+
+[[units]]
+dimensionality = { time = 1 }
+label = ["minute", "minutes"]
+symbol = "min"
+value = 60
+
+[[units]]
+dimensionality = { time = 1 }
+label = ["hour", "hours"]
+symbol = ["hr", "hrs"]
+symbol_names = ["h", "hr", "hrs"]
+value = 3600
+
+[[units]]
+dimensionality = { length = 1, time = -1 }
+label = ["kilometer per hour", "kilometers per hour"]
+label_names = []
+symbol = "kph"
+value = 0.277778
+
+[[assemblies]]
+name = "velocity"
+options = ["~m/s"]
+
+[[assemblies]]
+name = "car_velocity"
+options = ["km/hr"]
+
 # [[units]]
 # dimensionality = { temperature = 1 }
 # label = ["Celsius degree", "Celsius degrees"]

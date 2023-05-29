@@ -7,11 +7,11 @@ from typing import Any, Literal, Optional
 
 from snaptext import LocatedString, LocationArea
 
-from .core import CompositeUnit, InvalidUnitNameError, Unit, UnitRegistry
+from .core import CompositeUnit, InvalidUnitNameError, UnitAssemblyOption, UnitRegistry
 
 
 REGEXP_SCALAR = re.compile(r"([+-] *)?(?:\d* *\. *\d+|\d+(?: *\.)?)(?:e([+-])?(\d+))?")
-REGEXP_PUNCT = re.compile(r"\*\*|\*|/|\(|\)|\^|±|\+-|-")
+REGEXP_PUNCT = re.compile(r"\*\*|\*|/|\(|\)|\^|±|\+-|-|~")
 
 
 @dataclass(kw_only=True)
@@ -28,7 +28,7 @@ class GroupCloseToken(BaseToken):
 
 @dataclass
 class OpToken(BaseToken):
-  value: Literal['mul', 'div', 'exp', 'rng', 'unc']
+  value: Literal['mul', 'div', 'exp', 'rng', 'unc', 'var']
 
 @dataclass
 class ScalarToken(BaseToken):
@@ -36,7 +36,7 @@ class ScalarToken(BaseToken):
 
 @dataclass
 class UnitToken(BaseToken):
-  value: Unit
+  value: LocatedString
 
 Token = GroupCloseToken | GroupOpenToken | OpToken | ScalarToken | UnitToken
 
@@ -73,6 +73,8 @@ def tokenize(input_value: LocatedString, registry: UnitRegistry):
           tokens.append(OpToken('unc', area=match.area))
         case "-":
           tokens.append(OpToken('rng', area=match.area))
+        case "~":
+          tokens.append(OpToken('var', area=match.area))
         case "(":
           tokens.append(GroupOpenToken(area=match.area))
         case ")":
@@ -81,14 +83,7 @@ def tokenize(input_value: LocatedString, registry: UnitRegistry):
       cursor += match.span()[1]
     elif (match := forward_value.match_re("[a-zA-Z]+")):
       cursor += match.span()[1]
-      value = match.group()
-
-      try:
-        unit = registry.unit(value)
-      except InvalidUnitNameError:
-        raise ParserError(f"Invalid unit '{value}'", match.area)
-      else:
-        tokens.append(UnitToken(unit, area=match.area))
+      tokens.append(UnitToken(match.group(), area=match.area))
     else:
       raise ParserError("Invalid value", forward_value[0].area)
 
@@ -126,11 +121,84 @@ class TokenWalker:
       yield token
 
 
+  def accept_assembly(self):
+    components = list()
+    var_component_index = None
+
+    while True:
+      factor: Optional[int] = None
+
+      if components:
+        match self.peek():
+          case OpToken('mul'):
+            self.inc()
+            factor = 1
+          case OpToken('div'):
+            self.inc()
+            factor = -1
+
+      if var_component_index is None:
+        match self.peek():
+          case OpToken('var'):
+            self.inc()
+            factor = 1
+            var_component_index = len(components)
+
+      component = self.accept_assembly_component()
+
+      if component is None:
+        if factor is not None:
+          raise ParserError("Invalid token, expected unit", self.peek_area())
+
+        break
+
+      if factor is not None:
+        component = (component[0], component[1] * factor)
+
+      components.append(component)
+
+    return UnitAssemblyOption(
+      tuple(components),
+      var_component_index
+    )
+
+    # return (components, var_component_index)
+
+  def accept_assembly_component(self):
+    match self.peek():
+      case UnitToken(value):
+        self.inc()
+
+        if (unit := self.registry._units_by_name.get(value)):
+          item = frozenset({unit})
+        else:
+          raise ParserError("Invalid name", value.area)
+      case _:
+        return None
+
+    match self.peek():
+      case OpToken('exp'):
+        self.inc()
+        exp = self.accept_scalar()
+
+        if exp is None:
+          raise ParserError("Invalid token, expected scalar", self.peek_area())
+
+        return (item, exp)
+      case _:
+        return (item, 1.0)
+
   def accept_base_unit(self):
     match self.peek():
       case UnitToken(value):
         self.inc()
-        return value
+
+        try:
+          unit = self.registry.unit(value)
+        except InvalidUnitNameError:
+          raise ParserError(f"Invalid unit '{value}'", value.area)
+
+        return unit
       case _:
         return None
 
@@ -269,8 +337,12 @@ def parse(raw_input_value: LocatedString | str, /, registry: UnitRegistry):
 
   walker = TokenWalker(registry, input_value, tokens)
   return walker.expect_only(walker.accept_quantity())
-  # return walker.expect_only(walker.accept_measurement())
-  # return walker.expect_only(walker.accept_range())
+
+def parse_assembly(raw_input_value: LocatedString | str, /, registry: UnitRegistry):
+  input_value = LocatedString(raw_input_value)
+  tokens = tokenize(input_value, registry)
+  walker = TokenWalker(registry, input_value, tokens)
+  return walker.expect_only(walker.accept_assembly())
 
 
 __all__ = [

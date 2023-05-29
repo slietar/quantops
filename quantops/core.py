@@ -2,7 +2,18 @@ import functools
 from pprint import pprint
 import tomllib
 from dataclasses import dataclass, field
-from typing import IO, Any, Literal, NewType, NotRequired, Optional, Protocol, Required, Self, TypedDict, cast, final, overload, reveal_type
+from typing import IO, Any, Generic, Literal, NewType, NotRequired, Optional, Protocol, Required, Self, TypeVar, TypedDict, cast, final, overload, reveal_type
+
+
+K = TypeVar('K')
+V = TypeVar('V')
+
+class FrozenDict(dict[K, V], Generic[K, V]):
+  def __hash__(self):
+    return hash(frozenset(self.items()))
+
+  def __repr__(self):
+    return f"{self.__class__.__name__}({super().__repr__()})"
 
 
 SUPERSCRIPT_CHARS = {
@@ -23,7 +34,7 @@ DimensionName = NewType('DimensionName', str)
 PrefixSystemName = NewType('PrefixSystemName', str)
 SystemName = NewType('SystemName', str)
 
-Dimensionality = dict[DimensionName, float | int]
+Dimensionality = FrozenDict[DimensionName, float | int]
 
 
 class RegistryPrefixData(TypedDict):
@@ -140,30 +151,47 @@ class Quantity:
       value=(self.value ** other)
     )
 
-  def format(self, *, style: Literal['long', 'short'] = 'short', system: str = "SI", variants: Optional[dict[str, Any]] = None):
+  def format(self, assembly_name: str, *, style: Literal['label', 'symbol'] = 'symbol', system: SystemName = SystemName("SI")):
     if not self.dimensionality:
       return f"{self.value:.2f}"
 
-    var_dimension, var_dimension_factor = next(((dimension, factor) for dimension, factor in self.dimensionality.items() if factor >= 1), next(iter(self.dimensionality.items())))
+    assembly = self.registry._assemblies[assembly_name]
+    # print(assembly)
+    # return
+
+    # var_dimension, var_dimension_factor = next(((dimension, factor) for dimension, factor in self.dimensionality.items() if factor >= 1), next(iter(self.dimensionality.items())))
 
     # output = f"{self.value:.02f} "
     output = str()
     value = self.value
 
-    def unit_matches(dimension: DimensionName, unit: Unit):
-      if (unit.dimension != dimension) or not (system in unit.systems):
-        return False
+    # def unit_matches(dimension: DimensionName, unit: Unit):
+    #   if (unit.dimension != dimension) or not (system in unit.systems):
+    #     return False
 
-      if variants:
-        for variant_key, variant_value in variants.items():
-          if (variant_key in unit.variants) and (variant_value != unit.variants[variant_key]):
-            return False
+    #   if variants:
+    #     for variant_key, variant_value in variants.items():
+    #       if (variant_key in unit.variants) and (variant_value != unit.variants[variant_key]):
+    #         return False
 
-      return True
+    #   return True
 
-    output_units = list[tuple[Unit, float | int]]()
+    # output_units = list[tuple[Unit, float]]()
 
-    for dimension, factor in self.dimensionality.items():
+    hypotheses = list()
+
+    for option in assembly:
+      for item, factor in option.components:
+        pass
+
+      item, factor = next(iter(option.components))
+      print(">", item)
+
+      if isinstance(item, UnitAssemblyOption):
+        raise Exception
+
+      return
+
       if dimension == var_dimension:
         continue
 
@@ -280,7 +308,7 @@ class Unit(CompositeUnit):
   offset: float
   registry: 'UnitRegistry' = field(repr=False)
   symbol: tuple[str, str]
-  systems: set[SystemName]
+  systems: frozenset[SystemName]
 
   @overload
   def __mul__(self, other: Self, /) -> 'CompositeUnit':
@@ -302,13 +330,27 @@ class Unit(CompositeUnit):
 
     return super().__mul__(other)
 
+  def __repr__(self):
+    return f"{self.__class__.__name__}({self.symbol[0]!r})"
 
 class InvalidUnitNameError(Exception):
   pass
 
+# X = tuple[set[Unit], int]
+# UnitAssembly = list[list[set[Unit]]]
+
+@dataclass
+class UnitAssemblyOption:
+  components: 'tuple[tuple[UnitAssembly | frozenset[Unit], int], ...]'
+  variable_index: Optional[int]
+
+UnitAssembly = list[UnitAssemblyOption]
+
+
 @final
 class UnitRegistry:
   def __init__(self):
+    self._assemblies = dict[str, UnitAssembly]()
     self._units = list[Unit]()
     self._unit_groups = dict[str, set[Unit]]()
     self._units_by_name = dict[str, Unit]()
@@ -342,6 +384,8 @@ class UnitRegistry:
 
   @classmethod
   def load(cls, file: IO[bytes]):
+    from .parser import parse_assembly
+
     data = cast(RegistryData, tomllib.load(file))
     # pprint(data)
 
@@ -352,18 +396,19 @@ class UnitRegistry:
 
     for data_unit in data['units']:
       unit = Unit(
-        dimensionality={DimensionName(dimension): power for dimension, power in data_unit['dimensionality'].items()},
+        dimensionality=Dimensionality({ DimensionName(dimension): power for dimension, power in data_unit['dimensionality'].items() }),
         label=ensure_tuple(data_unit['label']),
         symbol=ensure_tuple(data_unit['symbol']),
         offset=data_unit.get('offset', 0.0),
         registry=registry,
-        systems={SystemName(system) for system in data_unit.get('systems', ["SI"])},
+        systems=frozenset({SystemName(system) for system in data_unit.get('systems', ["SI"])}),
         value=data_unit.get('value', 1.0)
       )
 
       for name in [*data_unit.get('label_names', unit.label), *data_unit.get('symbol_names', unit.symbol)]:
         registry._units_by_name[name] = unit
 
+      all_units = {unit}
       prefixsys_names = data_unit.get('prefixes', list())
 
       while prefixsys_names:
@@ -389,12 +434,25 @@ class UnitRegistry:
           for name in data_unit.get('symbol_names', unit.symbol):
             registry._units_by_name[data_prefix['symbol'] + name] = prefixed_unit
 
+          all_units.add(prefixed_unit)
+
+      if len(unit.dimensionality) == 1:
+        dimension_name, dimension_factor = next(iter(unit.dimensionality.items()))
+
+        if dimension_factor == 1:
+          registry._unit_groups.setdefault(dimension_name, set()).update(all_units)
+
+    for data_assembly in data['assemblies']:
+      options = [parse_assembly(data_option, registry) for data_option in data_assembly['options']]
+      registry._assemblies[data_assembly['name']] = options
+
     return registry
 
 
 __all__ = [
   'DimensionName',
   'InvalidUnitNameError',
+  'PrefixSystemName',
   'Quantity',
   'SystemName',
   'Unit',
