@@ -2,34 +2,19 @@ import { FunctionComponent, ReactNode, createElement } from 'react';
 import { inspect } from 'node:util';
 
 import untypedRegistryData from './data.json';
+import type { AssemblyName, Data, Unit } from './data.js';
+
 
 const registryData = untypedRegistryData as Data;
 
 
-type AssemblyName = string;
-type UnitId = string;
-
-interface Assembly {
-  options: {
-    components: {
-      power: number;
-      units: UnitId[];
-    }[];
-    variableIndex: number | null;
-  }[];
-}
-
-interface Unit {
-  label: [string, string];
-  symbol: [string, string];
+interface ConstantAssembly {
+  components: [Unit, number][];
   value: number;
 }
 
-interface Data {
-  assemblies: Record<AssemblyName, Assembly>;
-  units: Record<UnitId, Unit>;
-}
 
+type CreateElementType<T> = (tag: string, attributes: Record<string, any> | null | undefined, ...children: ReactNode[]) => T;
 
 export function format<T>(value: number, assemblyName: AssemblyName, options: {
   mode: {
@@ -56,8 +41,16 @@ export function format<T>(value: number, assemblyName: AssemblyName, options: {
     (bestOption.value * value).toFixed(decimalCount),
     '&nbsp;'
   ];
+}
 
-  for (let [index, [unit, power]] of bestOption.components.entries()) {
+
+export function formatConstantAssemblyAsReact<T>(assembly: ConstantAssembly, options: {
+  createElement: CreateElementType<T>;
+  style?: 'label' | 'symbol';
+}) {
+  let output: (T | string)[] = [];
+
+  for (let [index, [unit, power]] of assembly.components.entries()) {
     if (index > 0) {
       output.push((power < 0 ? '/' : '&middot;'));
     }
@@ -74,7 +67,7 @@ export function format<T>(value: number, assemblyName: AssemblyName, options: {
     }
 
     if ((power !== 1) && ((index < 1) || (power !== -1))) {
-      output.push(options.mode.createElement('sup', {},
+      output.push(options.createElement('sup', {},
         (index > 0 ? Math.abs(power) : power).toString()
       ));
     }
@@ -83,8 +76,24 @@ export function format<T>(value: number, assemblyName: AssemblyName, options: {
   return output;
 }
 
-export function getOptionsForRange(min: number, max: number) {
+export function formatAssembledQuantityAsReact<T>(value: number, resolution: number, assembly: ConstantAssembly, options: { createElement: CreateElementType<T> }) {
+  let decimalCount = Math.max(0, Math.ceil(-Math.log10(resolution * assembly.value)));
 
+  return [
+    (value * assembly.value).toFixed(decimalCount),
+    ...((assembly.components.length > 0) ? ['&nbsp;'] : []),
+    ...formatConstantAssemblyAsReact(assembly, { createElement: options.createElement })
+  ];
+}
+
+
+export function getOptionsForRange(assemblyName: AssemblyName, min: number, max: number) {
+  let assembly = registryData.assemblies[assemblyName];
+  let assemblyOptions = findAssemblyOptions(assemblyName);
+
+  return assemblyOptions.filter((option) => {
+    return (option.value * min <= 1) && (option.value * max >= 1);
+  });
 }
 
 export function findAssemblyOptions(assemblyName: AssemblyName) {

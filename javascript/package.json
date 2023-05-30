@@ -3,7 +3,6 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "_build": "python3 -c \"__import__('json').dump(__import__('tomllib').load(open('registry.toml', 'rb')), __import__('sys').stdout)\"",
     "build": "esbuild --bundle --format=esm --minify --outfile=lib/index.js src/index.ts",
     "build:watch": "esbuild --bundle --format=esm --outfile=lib/index.js --sourcemap --watch src/index.ts",
     "test": "tsc"
