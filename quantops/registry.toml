@@ -17,7 +17,7 @@ prefixes = [
 [prefix_systems.LowerSI]
 prefixes = [
   { factor = 1e-3, label = "milli", symbol = "m" },
-  { factor = 1e-6, label = "micro", symbol = "µ" },
+  { factor = 1e-6, label = "micro", symbol = "\u00B5", symbol_names = ["\u00B5", "\u03BC", "u"] }, # U+00B5 => micro sign, U+03BC => greek letter mu
   { factor = 1e-9, label = "nano", symbol = "n" },
   { factor = 1e-12, label = "pico", symbol = "p" },
   { factor = 1e-15, label = "femto", symbol = "f" }
@@ -71,14 +71,25 @@ label_names = []
 symbol = "kph"
 value = 0.277778
 
+[[units]]
+dimensionality = { length = 3 }
+label = ["liter", "liters"]
+label_names = ["liter", "liters", "litre", "litres"]
+symbol = "l"
+prefixes = ["LowerSI"]
+value = 1e-3
+
 [[assemblies]]
 name = "velocity"
-options = ["hr^-1*km"]
-# options = ["m/s", "hr^-1*m"]
+options = ["~m/s", "hr^-1*km"]
 
 [[assemblies]]
 name = "car_velocity"
 options = ["km/hr"]
+
+[[assemblies]]
+name = "flowrate"
+options = ["µl/~time"]
 
 # [[units]]
 # dimensionality = { temperature = 1 }

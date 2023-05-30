@@ -9,6 +9,7 @@ ureg = UnitRegistry.load(files("quantops").joinpath("registry.toml").open("rb"))
 
 # pprint(ureg._unit_groups)
 # pprint(ureg._assemblies)
+# pprint(ureg._units_by_name)
 
 # try:
 #   print(ureg.parse('~meter/s**2'))
@@ -18,5 +19,5 @@ ureg = UnitRegistry.load(files("quantops").joinpath("registry.toml").open("rb"))
 #   print(e.area.format())
 
 
-x = ureg.parse('30 m/s')
-print(x.format('velocity'))
+x = ureg.parse('0.10 µl/s')
+print(x.format('flowrate'))

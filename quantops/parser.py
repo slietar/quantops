@@ -2,16 +2,17 @@ import ast
 import re
 from abc import ABC
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Literal, Optional, TypeVar
 
 from snaptext import LocatedString, LocationArea
 
-from .core import CompositeUnit, InvalidUnitNameError, UnitAssemblyOption, UnitRegistry
+from .core import CompositeUnit, Dimensionality, InvalidUnitNameError, UnitAssemblyOption, UnitRegistry
 
 
 REGEXP_SCALAR = re.compile(r"([+-] *)?(?:\d* *\. *\d+|\d+(?: *\.)?)(?:e([+-])?(\d+))?")
 REGEXP_PUNCT = re.compile(r"\*\*|\*|/|\(|\)|\^|±|\+-|-|~")
+
+T = TypeVar('T')
 
 
 @dataclass(kw_only=True)
@@ -81,7 +82,7 @@ def tokenize(input_value: LocatedString, registry: UnitRegistry):
           tokens.append(GroupCloseToken(area=match.area))
     elif (match := re.match(" +", forward_value)):
       cursor += match.span()[1]
-    elif (match := forward_value.match_re("[a-zA-Z]+")):
+    elif (match := forward_value.match_re("[a-zA-Z_\u00b5\u03bc]+")):
       cursor += match.span()[1]
       tokens.append(UnitToken(match.group(), area=match.area))
     else:
@@ -123,53 +124,60 @@ class TokenWalker:
 
   def accept_assembly(self):
     components = list()
+    dimensionality = Dimensionality()
     var_component_index = None
 
     while True:
-      factor: Optional[int] = None
+      factor = 1.0
+      started = False
+      variable = False
 
       if components:
         match self.peek():
           case OpToken('mul'):
             self.inc()
-            factor = 1
           case OpToken('div'):
             self.inc()
-            factor = -1
+            factor = -1.0
 
       if var_component_index is None:
         match self.peek():
           case OpToken('var'):
             self.inc()
-            factor = 1
             var_component_index = len(components)
+            variable = True
 
-      component = self.accept_assembly_component()
+      component = self.accept_assembly_component(variable=variable)
 
       if component is None:
-        if factor is not None:
+        if started:
           raise ParserError("Invalid token, expected unit", self.peek_area())
 
         break
 
+      factor *= component[1]
+      dimensionality *= next(iter(component[0])).dimensionality ** factor
+
       if factor is not None:
-        component = (component[0], component[1] * factor)
+        component = (component[0], factor)
 
       components.append(component)
 
     return UnitAssemblyOption(
       tuple(components),
       var_component_index
-    )
+    ), dimensionality
 
     # return (components, var_component_index)
 
-  def accept_assembly_component(self):
+  def accept_assembly_component(self, *, variable: bool):
     match self.peek():
       case UnitToken(value):
         self.inc()
 
-        if (unit := self.registry._units_by_name.get(value)):
+        if (group := self.registry._unit_groups.get(value)) and variable:
+          item = frozenset(group)
+        elif (unit := self.registry._units_by_name.get(value)):
           item = frozenset({unit})
         else:
           raise ParserError("Invalid name", value.area)
@@ -319,7 +327,7 @@ class TokenWalker:
     if (token := self.peek()):
       raise ParserError("Invalid token", token.area)
 
-  def expect_only(self, value: Optional[Any], /):
+  def expect_only(self, value: Optional[T], /) -> T:
     if value is None:
       raise ParserError("Invalid token", self.peek_area())
 
