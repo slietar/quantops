@@ -11,6 +11,8 @@ from .core import CompositeUnit, Dimensionality, InvalidUnitNameError, UnitAssem
 
 REGEXP_SCALAR = re.compile(r"([+-] *)?(?:\d* *\. *\d+|\d+(?: *\.)?)(?:e([+-])?(\d+))?")
 REGEXP_PUNCT = re.compile(r"\*\*|\*|/|\(|\)|\^|±|\+-|-|~")
+REGEXP_UNIT = re.compile(r"[a-zA-Z_\u00b5\u03bc]+")
+
 
 T = TypeVar('T')
 
@@ -82,13 +84,13 @@ def tokenize(input_value: LocatedString, registry: UnitRegistry):
           tokens.append(GroupCloseToken(area=match.area))
     elif (match := re.match(" +", forward_value)):
       cursor += match.span()[1]
-    elif (match := forward_value.match_re("[a-zA-Z_\u00b5\u03bc]+")):
+    elif (match := forward_value.match_re(REGEXP_UNIT)):
       cursor += match.span()[1]
       tokens.append(UnitToken(match.group(), area=match.area))
     else:
       raise ParserError("Invalid value", forward_value[0].area)
 
-  return tokens
+  return TokenWalker(registry, input_value, tokens)
 
 
 @dataclass
@@ -336,20 +338,8 @@ class TokenWalker:
     return value
 
 
-def parse(raw_input_value: LocatedString | str, /, registry: UnitRegistry):
-  input_value = LocatedString(raw_input_value)
-  tokens = tokenize(input_value, registry)
-
-  # from pprint import pprint
-  # pprint(tokens)
-
-  walker = TokenWalker(registry, input_value, tokens)
-  return walker.expect_only(walker.accept_quantity())
-
-def parse_assembly(raw_input_value: LocatedString | str, /, registry: UnitRegistry):
-  input_value = LocatedString(raw_input_value)
-  tokens = tokenize(input_value, registry)
-  walker = TokenWalker(registry, input_value, tokens)
+def parse_assembly(string: str, /, registry: UnitRegistry):
+  walker = tokenize(LocatedString(string), registry)
   return walker.expect_only(walker.accept_assembly())
 
 

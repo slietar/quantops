@@ -89,7 +89,7 @@ options = ["km/hr"]
 
 [[assemblies]]
 name = "flowrate"
-options = ["µl/~time"]
+options = ["~l/min"]
 
 # [[units]]
 # dimensionality = { temperature = 1 }

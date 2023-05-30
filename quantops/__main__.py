@@ -1,4 +1,6 @@
 from importlib.resources import files
+import json
+from pathlib import Path
 from pprint import pprint
 
 from .core import UnitRegistry
@@ -19,5 +21,10 @@ ureg = UnitRegistry.load(files("quantops").joinpath("registry.toml").open("rb"))
 #   print(e.area.format())
 
 
-x = ureg.parse('0.10 µl/s')
-print(x.format('flowrate'))
+x = ureg.parse_quantity('10.8 m/s')
+print(x.format('velocity'))
+
+# pprint(ureg.serialize())
+
+# with Path("./javascript/src/data.json").open("w") as file:
+#   json.dump(ureg.serialize(), file, indent=2)

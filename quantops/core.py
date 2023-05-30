@@ -1,8 +1,11 @@
 import functools
-from pprint import pprint
 import tomllib
 from dataclasses import dataclass, field
-from typing import IO, Any, Generic, Literal, NewType, NotRequired, Optional, Protocol, Required, Self, TypeVar, TypedDict, cast, final, overload, reveal_type
+from pprint import pprint
+from typing import (IO, Any, Generic, Literal, NewType, NotRequired, Optional,
+                    Self, TypedDict, TypeVar, cast, final, overload)
+
+from snaptext import LocatedString
 
 
 K = TypeVar('K')
@@ -33,6 +36,7 @@ SUPERSCRIPT_CHARS = {
 DimensionName = NewType('DimensionName', str)
 PrefixSystemName = NewType('PrefixSystemName', str)
 SystemName = NewType('SystemName', str)
+UnitId = NewType('UnitId', str)
 
 class Dimensionality(FrozenDict[DimensionName, float | int]):
   def __mul__(self, other: Self, /):
@@ -46,6 +50,9 @@ class Dimensionality(FrozenDict[DimensionName, float | int]):
     return self.__class__({
       dimension: new_power for dimension, power in self.items() if (new_power := power * other) != 0
     })
+
+  def __truediv__(self, other: Self, /):
+    return self * (other ** -1)
 
 
 class RegistryPrefixData(TypedDict):
@@ -75,13 +82,6 @@ class RegistryData(TypedDict):
   assemblies: list[dict[str, Any]]
   prefix_systems: dict[PrefixSystemName, RegistryPrefixSystemData]
   units: list[RegistryUnitData]
-
-def compose_dimensionalities(a: Dimensionality, b: Dimensionality, /, factor: int = 1):
-  return Dimensionality({
-    dimension: power for dimension
-      in {*a.keys(), *b.keys()}
-      if (power := a.get(dimension, 0) + b.get(dimension, 0) * factor) != 0
-  })
 
 def format_superscript(number: float | int, /):
   return str().join(SUPERSCRIPT_CHARS[digit] for digit in str(number))
@@ -138,7 +138,7 @@ class Quantity:
     self._check_other_registry(other)
 
     return Quantity(
-      dimensionality=compose_dimensionalities(self.dimensionality, other.dimensionality),
+      dimensionality=(self.dimensionality * other.dimensionality),
       registry=self.registry,
       value=(self.value * other.value)
     )
@@ -150,7 +150,7 @@ class Quantity:
     self._check_other_registry(other)
 
     return Quantity(
-      dimensionality=compose_dimensionalities(self.dimensionality, other.dimensionality, factor=-1),
+      dimensionality=(self.dimensionality / other.dimensionality),
       registry=self.registry,
       value=(self.value / other.value)
     )
@@ -170,13 +170,8 @@ class Quantity:
     if self.dimensionality != assembly.dimensionality:
       raise ValueError("Dimensionality mismatch")
 
-    output = str()
-    value = self.value
-
     def unit_matches(unit: Unit):
       return (system in unit.systems)
-
-    # output_units = list[tuple[Unit, float]]()
 
     FactoredUnit = tuple[Unit, float]
     hypotheses = list[tuple[list[FactoredUnit], float]]()
@@ -212,10 +207,10 @@ class Quantity:
       else:
         hypotheses.append((option_components, option_value))
 
-    print(">", hypotheses)
     factored_units, value = sorted([(components, value) for components, value in hypotheses], key=(lambda item: (abs(item[1]) < 1.0, item[1])))[0]
-
     # has_offset = (len(self.dimensionality) == 1) and (var_dimension_factor == 1.0)
+
+    output = str()
 
     for index, (unit, factor) in enumerate(factored_units):
       if index > 0:
@@ -257,7 +252,7 @@ class CompositeUnit:
 
     if isinstance(other, CompositeUnit):
       return CompositeUnit(
-        dimensionality=compose_dimensionalities(self.dimensionality, other.dimensionality),
+        dimensionality=(self.dimensionality * other.dimensionality),
         registry=self.registry,
         value=(self.value * other.value)
       )
@@ -294,7 +289,7 @@ class CompositeUnit:
 
     if isinstance(other, CompositeUnit):
       return CompositeUnit(
-        dimensionality=compose_dimensionalities(self.dimensionality, other.dimensionality, factor=-1),
+        dimensionality=(self.dimensionality / other.dimensionality),
         registry=self.registry,
         value=(self.value / other.value)
       )
@@ -319,6 +314,10 @@ class Unit(CompositeUnit):
   registry: 'UnitRegistry' = field(repr=False)
   symbol: tuple[str, str]
   systems: frozenset[SystemName]
+
+  @property
+  def id(self):
+    return UnitId(self.symbol[0])
 
   @overload
   def __mul__(self, other: Self, /) -> 'CompositeUnit':
@@ -346,9 +345,6 @@ class Unit(CompositeUnit):
 class InvalidUnitNameError(Exception):
   pass
 
-# X = tuple[set[Unit], int]
-# UnitAssembly = list[list[set[Unit]]]
-
 @dataclass
 class UnitAssemblyOption:
   components: 'tuple[tuple[frozenset[Unit], int], ...]'
@@ -364,8 +360,8 @@ class UnitAssembly:
 class UnitRegistry:
   def __init__(self):
     self._assemblies = dict[str, UnitAssembly]()
-    self._units = list[Unit]()
     self._unit_groups = dict[str, set[Unit]]()
+    self._units_by_id = dict[UnitId, Unit]()
     self._units_by_name = dict[str, Unit]()
 
   def dimensionless(self, value: float | int, /):
@@ -375,9 +371,41 @@ class UnitRegistry:
       value=value
     )
 
-  def parse(self, string: str, /):
-    from .parser import parse
-    return parse(string, self)
+  def parse_assembly(self, string: str, /):
+    from .parser import parse_assembly
+    return parse_assembly(string, self)
+
+  def parse_quantity(self, string: str, /):
+    from .parser import tokenize
+
+    walker = tokenize(LocatedString(string), self)
+    return walker.expect_only(walker.accept_quantity())
+
+  def serialize(self):
+    return {
+      "assemblies": {
+        assembly_name: {
+          "options": [
+            {
+              "components": [
+                {
+                  "units": [unit.id for unit in units],
+                  "power": power
+                } for units, power in option.components
+              ],
+              "variableIndex": option.variable_index
+            } for option in assembly.options
+          ]
+        } for assembly_name, assembly in self._assemblies.items()
+      },
+      "units": {
+        unit.id: {
+          "label": list(unit.label),
+          "symbol": list(unit.symbol),
+          "value": unit.value
+        } for unit in self._units_by_id.values()
+      }
+    }
 
   def unit(self, name: str, /):
     if not name in self._units_by_name:
@@ -418,6 +446,8 @@ class UnitRegistry:
         value=data_unit.get('value', 1.0)
       )
 
+      registry._units_by_id[unit.id] = unit
+
       for name in [*data_unit.get('label_names', unit.label), *data_unit.get('symbol_names', unit.symbol)]:
         registry._units_by_name[name] = unit
 
@@ -440,6 +470,8 @@ class UnitRegistry:
             systems=unit.systems,
             value=(data_prefix['factor'] * unit.value)
           )
+
+          registry._units_by_id[prefixed_unit.id] = prefixed_unit
 
           for name in data_unit.get('label_names', unit.label):
             registry._units_by_name[data_prefix['label'] + name] = prefixed_unit
