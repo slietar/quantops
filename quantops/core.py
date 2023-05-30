@@ -165,61 +165,70 @@ class Quantity:
     output = str()
     value = self.value
 
-    # def unit_matches(dimension: DimensionName, unit: Unit):
-    #   if (unit.dimension != dimension) or not (system in unit.systems):
-    #     return False
+    def unit_matches(unit: Unit):
+      if not (system in unit.systems):
+        return False
 
     #   if variants:
     #     for variant_key, variant_value in variants.items():
     #       if (variant_key in unit.variants) and (variant_value != unit.variants[variant_key]):
     #         return False
 
-    #   return True
+      return True
 
     # output_units = list[tuple[Unit, float]]()
 
-    hypotheses = list()
+    FactoredUnit = tuple[Unit, float]
+    hypotheses = list[tuple[list[FactoredUnit], float]]()
 
     for option in assembly:
-      for item, factor in option.components:
-        pass
+      option_components = list[FactoredUnit]()
+      option_value = self.value
 
-      item, factor = next(iter(option.components))
-      print(">", item)
+      for component_index, (component_units, component_factor) in enumerate(option.components):
+        matching_unit = next((unit for unit in component_units if unit_matches(unit)), None)
 
-      if isinstance(item, UnitAssemblyOption):
-        raise Exception
+        if matching_unit is None:
+          # TODO: Fix
+          break
 
-      return
+        if component_index == option.variable_index:
+          continue
 
-      if dimension == var_dimension:
-        continue
+        option_components.append((matching_unit, component_factor))
+        option_value /= matching_unit.value ** component_factor
 
-      unit = next(unit for unit in self.registry._units if unit_matches(dimension, unit))
-      value /= unit.value ** factor
+      if option.variable_index is not None:
+        var_component_units, var_component_factor = option.components[option.variable_index]
+        has_offset = False
+        var_component_units = list((unit, (value - (unit.offset if has_offset else 0.0)) / unit.value ** var_component_factor) for unit in var_component_units if unit_matches(unit))
+        var_component_unit, option_value = sorted([(unit, quant) for unit, quant in var_component_units], key=(lambda item: (abs(item[1]) < 1.0, item[1])))[0]
 
-      output_units.append((unit, factor))
+        hypotheses.append(([
+          *option_components[0:option.variable_index],
+          (var_component_unit, var_component_factor),
+          *option_components[option.variable_index:],
+        ], option_value))
+      else:
+        hypotheses.append((option_components, option_value))
 
-    has_offset = (len(self.dimensionality) == 1) and (var_dimension_factor == 1.0)
+    factored_units, value = sorted([(components, value) for components, value in hypotheses], key=(lambda item: (abs(item[1]) < 1.0, item[1])))[0]
 
-    # print(var_dimension_factor)
-    var_dimension_units = list((unit, (value - (unit.offset if has_offset else 0.0)) / unit.value ** var_dimension_factor) for unit in self.registry._units if unit_matches(var_dimension, unit))
-    var_dimension_unit, value = sorted([(unit, quant) for unit, quant in var_dimension_units], key=(lambda item: (abs(item[1]) < 1.0, item[1])))[0]
-    # pprint(var_dimension_unit)
+    # has_offset = (len(self.dimensionality) == 1) and (var_dimension_factor == 1.0)
 
-    output_units.append((var_dimension_unit, var_dimension_factor))
-
-    for index, (unit, factor) in enumerate(sorted(output_units, key=(lambda item: -item[1]))):
+    for index, (unit, factor) in enumerate(factored_units):
       if index > 0:
         output += ("/" if factor < 0 else "*")
 
-      if style == 'short':
-        output += unit.short
-      if style == 'long':
-        output += unit.long
+      plural = (index < 1) and (factor > 0)
 
-      if abs(factor) != 1:
-        output += format_superscript(abs(factor))
+      if style == 'label':
+        output += unit.label[1 if plural else 0]
+      if style == 'symbol':
+        output += unit.symbol[1 if plural else 0]
+
+      if (factor != 1) and ((index < 1) or (factor != -1)):
+        output += format_superscript(abs(factor) if (index > 0) else factor)
 
     return f"{value:.02f} {output}"
 
@@ -341,8 +350,13 @@ class InvalidUnitNameError(Exception):
 
 @dataclass
 class UnitAssemblyOption:
-  components: 'tuple[tuple[UnitAssembly | frozenset[Unit], int], ...]'
+  components: 'tuple[tuple[frozenset[Unit], int], ...]'
+  # components: 'tuple[tuple[UnitAssembly | frozenset[Unit], int], ...]'
   variable_index: Optional[int]
+
+  # before_variable: tuple[tuple[Unit, int], ...]
+  # variable: tuple[frozenset[Unit], int]
+  # after_variable: tuple[tuple[Unit, int], ...]
 
 UnitAssembly = list[UnitAssemblyOption]
 

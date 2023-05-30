@@ -73,7 +73,8 @@ value = 0.277778
 
 [[assemblies]]
 name = "velocity"
-options = ["~m/s"]
+options = ["hr^-1*km"]
+# options = ["m/s", "hr^-1*m"]
 
 [[assemblies]]
 name = "car_velocity"
