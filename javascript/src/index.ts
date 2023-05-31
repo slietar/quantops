@@ -1,50 +1,46 @@
-import { FunctionComponent, ReactNode, createElement } from 'react';
-import { inspect } from 'node:util';
+import type { ReactNode } from 'react';
 
-import untypedRegistryData from './data.json';
+import untypedRegistryData from '../data/registry.json';
 import type { AssemblyName, Data, Unit } from './data.js';
 
 
 const registryData = untypedRegistryData as Data;
 
 
-interface ConstantAssembly {
-  components: [Unit, number][];
+export interface CompositeUnitFormat {
+  components: (readonly [Unit, number])[];
   value: number;
 }
 
 
-type CreateElementType<T> = (tag: string, attributes: Record<string, any> | null | undefined, ...children: ReactNode[]) => T;
+export type CreateElementType<T> = (tag: string, attributes: Record<string, any> | null | undefined, ...children: ReactNode[]) => T;
 
-export function format<T>(value: number, assemblyName: AssemblyName, options: {
-  mode: {
-    type: 'react';
-    createElement(tag: string, attributes: Record<string, any> | null | undefined, ...children: ReactNode[]): T;
-  };
-  resolution?: number;
-  style?: 'label' | 'symbol';
-}) {
-  let assemblyOptions = findAssemblyOptions(assemblyName);
 
-  let sortedOptions = assemblyOptions.sort((a, b) => {
+export function findBestCompositeUnitFormat(value: number, formats: CompositeUnitFormat[]) {
+  return formats.slice().sort((a, b) => {
     let aValue = a.value * value;
     let bValue = b.value * value;
 
-    return Number(aValue < 1) - Number(bValue < 1) || (aValue - bValue);
-  });
-
-  let bestOption = sortedOptions[0];
-  let resolution = options.resolution ?? (value / 100);
-  let decimalCount = Math.max(0, Math.ceil(-Math.log10(resolution * bestOption.value)));
-
-  let output: (T | string)[] = [
-    (bestOption.value * value).toFixed(decimalCount),
-    '&nbsp;'
-  ];
+    let bool = (v: boolean) => v ? 1 : -1;
+    return (bool(aValue < 1) - bool(bValue < 1)) || (aValue - bValue) * bool(aValue > 1);
+  })[0];
 }
 
+export function filterRangeCompositeUnitFormats(min: number, max: number, formats: CompositeUnitFormat[]) {
+  let minFormat = findBestCompositeUnitFormat(min, formats);
+  let maxFormat = findBestCompositeUnitFormat(max, formats);
 
-export function formatConstantAssemblyAsReact<T>(assembly: ConstantAssembly, options: {
+  let sortedFormats = formats
+    .slice()
+    .sort((a, b) => (b.value - a.value));
+
+  return sortedFormats.slice(
+    sortedFormats.indexOf(minFormat),
+    sortedFormats.indexOf(maxFormat) + 1
+  );
+}
+
+export function formatUnitAsReact<T>(assembly: CompositeUnitFormat, options: {
   createElement: CreateElementType<T>;
   style?: 'label' | 'symbol';
 }) {
@@ -76,27 +72,39 @@ export function formatConstantAssemblyAsReact<T>(assembly: ConstantAssembly, opt
   return output;
 }
 
-export function formatAssembledQuantityAsReact<T>(value: number, resolution: number, assembly: ConstantAssembly, options: { createElement: CreateElementType<T> }) {
-  let decimalCount = Math.max(0, Math.ceil(-Math.log10(resolution * assembly.value)));
-
+export function formatQuantityAsReact<T>(value: number, resolution: number, assembly: CompositeUnitFormat, options: {
+  createElement: CreateElementType<T>;
+  skipUnit?: boolean;
+}) {
   return [
-    (value * assembly.value).toFixed(decimalCount),
-    ...((assembly.components.length > 0) ? ['&nbsp;'] : []),
-    ...formatConstantAssemblyAsReact(assembly, { createElement: options.createElement })
+    ...formatMagnitudeAsReact(value * assembly.value, resolution * assembly.value),
+    ...(!options.skipUnit && (assembly.components.length > 0)
+      ? [
+        '&nbsp;',
+        ...formatUnitAsReact(assembly, { createElement: options.createElement })
+      ]
+      : [])
   ];
 }
 
+export function formatMagnitudeAsReact(value: number, resolution: number) {
+  let decimalCount = Math.max(0, Math.ceil(-Math.log10(resolution)));
 
-export function getOptionsForRange(assemblyName: AssemblyName, min: number, max: number) {
-  let assembly = registryData.assemblies[assemblyName];
-  let assemblyOptions = findAssemblyOptions(assemblyName);
-
-  return assemblyOptions.filter((option) => {
-    return (option.value * min <= 1) && (option.value * max >= 1);
-  });
+  return [
+    ...(value < 0 ? ['&ndash;'] : []),
+    Math.abs(value).toFixed(decimalCount)
+  ];
 }
 
-export function findAssemblyOptions(assemblyName: AssemblyName) {
+export function formatRangeAsReact<T>(min: number, max: number, resolution: number, minAssembly: CompositeUnitFormat, maxAssembly: CompositeUnitFormat, options: { createElement: CreateElementType<T> }) {
+  return [
+    ...formatQuantityAsReact(min, resolution, minAssembly, { ...options, skipUnit: (maxAssembly === minAssembly) }),
+    ' &mdash; ',
+    ...formatQuantityAsReact(max, resolution, maxAssembly, options)
+  ];
+}
+
+export function findCompositeUnitFormats(assemblyName: AssemblyName): CompositeUnitFormat[] {
   let assembly = registryData.assemblies[assemblyName];
   let unitMatches = (unit: Unit) => true;
 
@@ -166,3 +174,14 @@ function createSomeElement(tag: string, attributes: Record<string, any> | null |
 
 // console.log(x);
 // console.log(inspect(x, { colors: true, depth: null }));
+
+
+// let formats = findCompositeUnitFormats('velocity');
+// let bestFormat = findBestCompositeUnitFormat(2e-3, formats);
+
+// // console.log(bestFormat.map((x) => x.value * 2e-3));
+// console.log(filterRangeCompositeUnitFormats(1e-3, 1e3, formats).map((x) => `${x.components[0][0].symbol[0]}/${x.components[1][0].symbol[0]} (${x.value})`));
+
+// console.log(
+//   formatRangeAsReact(3, 3200, 0.1, findBestCompositeUnitFormat(3, formats), findBestCompositeUnitFormat(3200, formats), { createElement: createSomeElement })
+// )

@@ -21,10 +21,14 @@ ureg = UnitRegistry.load(files("quantops").joinpath("registry.toml").open("rb"))
 #   print(e.area.format())
 
 
-x = ureg.parse_quantity('10.8 m/s')
-print(x.format('velocity'))
+# x = ureg.parse_quantity('10.8 m/s')
+# print(x.format('velocity'))
 
 # pprint(ureg.serialize())
 
-# with Path("./javascript/src/data.json").open("w") as file:
-#   json.dump(ureg.serialize(), file, indent=2)
+
+data_path = Path("./javascript/data/registry.json")
+data_path.parent.mkdir(exist_ok=True, parents=True)
+
+with data_path.open("w") as file:
+  json.dump(ureg.serialize(), file, indent=2)
