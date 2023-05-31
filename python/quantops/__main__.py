@@ -27,7 +27,7 @@ ureg = UnitRegistry.load(files("quantops").joinpath("registry.toml").open("rb"))
 # pprint(ureg.serialize())
 
 
-data_path = Path("./javascript/data/registry.json")
+data_path = Path(__file__).parent / "../../javascript/data/registry.json"
 data_path.parent.mkdir(exist_ok=True, parents=True)
 
 with data_path.open("w") as file:
