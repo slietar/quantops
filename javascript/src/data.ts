@@ -1,15 +1,6 @@
-export type AssemblyName = string;
+export type ContextName = string;
+export type SystemName = string;
 export type UnitId = string;
-
-export interface Assembly {
-  options: {
-    components: {
-      power: number;
-      units: UnitId[];
-    }[];
-    variableIndex: number | null;
-  }[];
-}
 
 export interface Unit {
   label: [string, string];
@@ -18,6 +9,23 @@ export interface Unit {
 }
 
 export interface Data {
-  assemblies: Record<AssemblyName, Assembly>;
+  contexts: Record<ContextName, Context>;
   units: Record<UnitId, Unit>;
+}
+
+export interface Context {
+  variants: ContextVariant[];
+}
+
+export type ConstantAssemblyPart = [UnitId, number];
+export type ConstantAssembly = ConstantAssemblyPart[];
+
+export interface ContextVariant {
+  options: ContextVariantOption[];
+  systems: SystemName[];
+}
+
+export interface ContextVariantOption {
+  assembly: ConstantAssembly;
+  value: number;
 }
