@@ -1,4 +1,5 @@
 import functools
+import operator
 import tomllib
 from dataclasses import dataclass, field
 from pprint import pprint
@@ -372,8 +373,13 @@ class UnitAssembly:
 ConstantUnitAssembly = list[UnitAssemblyConstantPart]
 
 @dataclass(frozen=True)
+class ContextVariantOption:
+  assembly: ConstantUnitAssembly
+  value: float
+
+@dataclass(frozen=True)
 class ContextVariant:
-  options: list[ConstantUnitAssembly]
+  options: list[ContextVariantOption]
   systems: set[SystemName]
 
 @dataclass(frozen=True)
@@ -414,7 +420,10 @@ class UnitRegistry:
           "variants": [
             {
               "options": [
-                [[part.unit.id, part.power] for part in assembly] for assembly in variant.options
+                {
+                  "assembly": [[part.unit.id, part.power] for part in option.assembly],
+                  "value": option.value
+                } for option in variant.options
               ],
               "systems": list(variant.systems)
             } for variant in context.variants
@@ -520,7 +529,7 @@ class UnitRegistry:
       variants = list[ContextVariant]()
 
       for data_variant in data_context['variants']:
-        options = list[ConstantUnitAssembly]()
+        option_assemblies = list[ConstantUnitAssembly]()
 
         for data_option in data_variant['options']:
           assembly, option_dimensionality = parse_assembly(data_option, registry)
@@ -531,9 +540,14 @@ class UnitRegistry:
             raise ValueError("Invalid dimensionality")
 
           if assembly.variable_part:
-            options += [[*assembly.before_variable_parts, UnitAssemblyConstantPart(unit, assembly.variable_part.power), *assembly.after_variable_parts] for unit in assembly.variable_part.units]
+            option_assemblies += [[*assembly.before_variable_parts, UnitAssemblyConstantPart(unit, assembly.variable_part.power), *assembly.after_variable_parts] for unit in assembly.variable_part.units]
           else:
-            options.append(assembly.before_variable_parts)
+            option_assemblies.append(assembly.before_variable_parts)
+
+        options = [ContextVariantOption(
+          option_assembly,
+          functools.reduce(operator.mul, [part.unit.value ** part.power for part in option_assembly])
+        ) for option_assembly in option_assemblies]
 
         variants.append(ContextVariant(options, systems=set(data_variant['systems'])))
 
