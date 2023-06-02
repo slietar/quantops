@@ -6,7 +6,7 @@ from typing import Literal, Optional, TypeVar
 
 from snaptext import LocatedString, LocationArea
 
-from .core import CompositeUnit, Dimensionality, InvalidUnitNameError, UnitAssemblyOption, UnitRegistry
+from .core import CompositeUnit, Dimensionality, InvalidUnitNameError, UnitAssembly, UnitAssemblyConstantPart, UnitAssemblyVariablePart, UnitRegistry
 
 
 REGEXP_SCALAR = re.compile(r"([+-] *)?(?:\d* *\. *\d+|\d+(?: *\.)?)(?:e([+-])?(\d+))?")
@@ -125,67 +125,94 @@ class TokenWalker:
 
 
   def accept_assembly(self):
-    components = list()
     dimensionality = Dimensionality()
-    var_component_index = None
+
+    before_variable_parts = list[UnitAssemblyConstantPart]()
+    after_variable_parts = list[UnitAssemblyConstantPart]()
+    variable_part: Optional[UnitAssemblyVariablePart] = None
 
     while True:
-      factor = 1.0
+      power = 1.0
       started = False
       variable = False
 
-      if components:
+      if before_variable_parts or variable_part:
         match self.peek():
           case OpToken('mul'):
             self.inc()
           case OpToken('div'):
             self.inc()
-            factor = -1.0
+            power = -1.0
+            started = True
 
-      if var_component_index is None:
+      if not variable_part:
         match self.peek():
           case OpToken('var'):
             self.inc()
-            var_component_index = len(components)
             variable = True
+          case None:
+            break
 
-      component = self.accept_assembly_component(variable=variable)
-
-      if component is None:
-        if started:
+      match self.peek():
+        case UnitToken(value):
+          self.inc()
+          unit_name = value
+        case _ if started:
           raise ParserError("Invalid token, expected unit", self.peek_area())
+        case _:
+          break
 
-        break
+      power *= self.accept_assembly_power()
 
-      factor *= component[1]
-      dimensionality *= next(iter(component[0])).dimensionality ** factor
+      if (group := self.registry._unit_groups.get(unit_name)) and variable:
+        variable_part = UnitAssemblyVariablePart(frozenset(group), power)
+        dimensionality *= next(iter(group)).dimensionality ** power
+      elif (unit := self.registry._units_by_name.get(unit_name)):
+        if variable:
+          variable_part = UnitAssemblyVariablePart(frozenset({unit}), power)
+        else:
+          (after_variable_parts if variable_part else before_variable_parts).append(UnitAssemblyConstantPart(unit, power))
 
-      if factor is not None:
-        component = (component[0], factor)
+        dimensionality *= unit.dimensionality ** power
+      else:
+        raise ParserError("Invalid name", value.area)
 
-      components.append(component)
+    if not (before_variable_parts or variable_part or after_variable_parts):
+      return None
 
-    return UnitAssemblyOption(
-      tuple(components),
-      var_component_index
+    return UnitAssembly(
+      after_variable_parts,
+      before_variable_parts,
+      variable_part
     ), dimensionality
 
-    # return (components, var_component_index)
+  def accept_assembly_part(self, *, allow_variable: bool):
+    variable = False
 
-  def accept_assembly_component(self, *, variable: bool):
+    if allow_variable:
+      match self.peek():
+        case OpToken('var'):
+          self.inc()
+          variable = True
+        case None:
+          return None
+
     match self.peek():
       case UnitToken(value):
         self.inc()
 
         if (group := self.registry._unit_groups.get(value)) and variable:
-          item = frozenset(group)
+          return True, frozenset(group)
         elif (unit := self.registry._units_by_name.get(value)):
-          item = frozenset({unit})
+          return (True, frozenset({unit})) if variable else (False, unit)
         else:
           raise ParserError("Invalid name", value.area)
+      case _ if variable:
+        raise ParserError("Invalid token, expected unit", self.peek_area())
       case _:
         return None
 
+  def accept_assembly_power(self):
     match self.peek():
       case OpToken('exp'):
         self.inc()
@@ -194,9 +221,9 @@ class TokenWalker:
         if exp is None:
           raise ParserError("Invalid token, expected scalar", self.peek_area())
 
-        return (item, exp)
+        return exp
       case _:
-        return (item, 1.0)
+        return 1
 
   def accept_base_unit(self):
     match self.peek():

@@ -1,12 +1,15 @@
-[prefix_systems.SI]
+[[prefix_systems]]
+name = "SI"
 extend = ["LowerSI", "KiloSI", "UpperSI"]
 
-[prefix_systems.KiloSI]
+[[prefix_systems]]
+name = "KiloSI"
 prefixes = [
   { factor = 1e3, label = "kilo", symbol = "k" }
 ]
 
-[prefix_systems.UpperSI]
+[[prefix_systems]]
+name = "UpperSI"
 prefixes = [
   { factor = 1e6, label = "mega", symbol = "M" },
   { factor = 1e9, label = "giga", symbol = "G" },
@@ -14,7 +17,8 @@ prefixes = [
   { factor = 1e15, label = "peta", symbol = "P" }
 ]
 
-[prefix_systems.LowerSI]
+[[prefix_systems]]
+name = "LowerSI"
 prefixes = [
   { factor = 1e-3, label = "milli", symbol = "m" },
   { factor = 1e-6, label = "micro", symbol = "\u00B5", symbol_names = ["\u00B5", "\u03BC", "u"] }, # U+00B5 => micro sign, U+03BC => greek letter mu
@@ -23,7 +27,8 @@ prefixes = [
   { factor = 1e-15, label = "femto", symbol = "f" }
 ]
 
-[prefix_systems.BinaryMemory]
+[[prefix_systems]]
+name = "BinaryMemory"
 prefixes = [
   { factor = 1_024, label = "kibi", symbol = "Ki" },
   { factor = 1_048_576, label = "mebi", symbol = "Mi" },
@@ -79,17 +84,27 @@ symbol = "l"
 prefixes = ["LowerSI"]
 value = 1e-3
 
-[[assemblies]]
+
+[[contexts]]
 name = "velocity"
-options = ["~m/s", "hr^-1*km"]
 
-[[assemblies]]
+  [[contexts.variants]]
+  options = ["~m/s", "hr^-1*km"]
+  systems = ["SI"]
+
+[[contexts]]
 name = "car_velocity"
-options = ["km/hr"]
 
-[[assemblies]]
+  [[contexts.variants]]
+  options = ["km/hr"]
+  systems = ["SI"]
+
+[[contexts]]
 name = "flowrate"
-options = ["~l/min"]
+
+  [[contexts.variants]]
+  options = ["~l/min"]
+  systems = ["SI"]
 
 # [[units]]
 # dimensionality = { temperature = 1 }

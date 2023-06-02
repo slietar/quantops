@@ -34,6 +34,7 @@ SUPERSCRIPT_CHARS = {
 }
 
 DimensionName = NewType('DimensionName', str)
+ContextName = NewType('ContextName', str)
 PrefixSystemName = NewType('PrefixSystemName', str)
 SystemName = NewType('SystemName', str)
 UnitId = NewType('UnitId', str)
@@ -55,6 +56,14 @@ class Dimensionality(FrozenDict[DimensionName, float | int]):
     return self * (other ** -1)
 
 
+class RegistryContextVariantData(TypedDict):
+  options: list[str]
+  systems: list[SystemName]
+
+class RegistryContextData(TypedDict):
+  name: ContextName
+  variants: list[RegistryContextVariantData]
+
 class RegistryPrefixData(TypedDict):
   factor: float
   label: str
@@ -62,6 +71,7 @@ class RegistryPrefixData(TypedDict):
   symbol_names: NotRequired[list[str]]
 
 class RegistryPrefixSystemData(TypedDict):
+  name: PrefixSystemName
   extend: NotRequired[list[PrefixSystemName]]
   prefixes: NotRequired[list[RegistryPrefixData]]
 
@@ -71,7 +81,6 @@ class RegistryUnitData(TypedDict):
   label_names: NotRequired[list[str]]
   symbol: str | list[str]
   symbol_names: NotRequired[list[str]]
-  systems: list[SystemName]
 
   prefixes: NotRequired[list[PrefixSystemName]]
 
@@ -79,8 +88,8 @@ class RegistryUnitData(TypedDict):
   value: NotRequired[float]
 
 class RegistryData(TypedDict):
-  assemblies: list[dict[str, Any]]
-  prefix_systems: dict[PrefixSystemName, RegistryPrefixSystemData]
+  contexts: list[RegistryContextData]
+  prefix_systems: list[RegistryPrefixSystemData]
   units: list[RegistryUnitData]
 
 def format_superscript(number: float | int, /):
@@ -313,7 +322,6 @@ class Unit(CompositeUnit):
   offset: float
   registry: 'UnitRegistry' = field(repr=False)
   symbol: tuple[str, str]
-  systems: frozenset[SystemName]
 
   @property
   def id(self):
@@ -345,21 +353,39 @@ class Unit(CompositeUnit):
 class InvalidUnitNameError(Exception):
   pass
 
-@dataclass
-class UnitAssemblyOption:
-  components: 'tuple[tuple[frozenset[Unit], int], ...]'
-  variable_index: Optional[int]
+@dataclass(frozen=True)
+class UnitAssemblyConstantPart:
+  unit: Unit
+  power: float
 
-@dataclass
+@dataclass(frozen=True)
+class UnitAssemblyVariablePart:
+  units: frozenset[Unit]
+  power: float
+
+@dataclass(frozen=True)
 class UnitAssembly:
+  after_variable_parts: list[UnitAssemblyConstantPart]
+  before_variable_parts: list[UnitAssemblyConstantPart]
+  variable_part: Optional[UnitAssemblyVariablePart]
+
+ConstantUnitAssembly = list[UnitAssemblyConstantPart]
+
+@dataclass(frozen=True)
+class ContextVariant:
+  options: list[ConstantUnitAssembly]
+  systems: set[SystemName]
+
+@dataclass(frozen=True)
+class Context:
   dimensionality: Dimensionality
-  options: list[UnitAssemblyOption]
+  variants: list[ContextVariant]
 
 
 @final
 class UnitRegistry:
   def __init__(self):
-    self._assemblies = dict[str, UnitAssembly]()
+    self._contexts = dict[str, Context]()
     self._unit_groups = dict[str, set[Unit]]()
     self._units_by_id = dict[UnitId, Unit]()
     self._units_by_name = dict[str, Unit]()
@@ -383,20 +409,17 @@ class UnitRegistry:
 
   def serialize(self):
     return {
-      "assemblies": {
-        assembly_name: {
-          "options": [
+      "contexts": {
+        context_name: {
+          "variants": [
             {
-              "components": [
-                {
-                  "units": [unit.id for unit in units],
-                  "power": power
-                } for units, power in option.components
+              "options": [
+                [[part.unit.id, part.power] for part in assembly] for assembly in variant.options
               ],
-              "variableIndex": option.variable_index
-            } for option in assembly.options
+              "systems": list(variant.systems)
+            } for variant in context.variants
           ]
-        } for assembly_name, assembly in self._assemblies.items()
+        } for context_name, context in self._contexts.items()
       },
       "units": {
         unit.id: {
@@ -435,6 +458,10 @@ class UnitRegistry:
 
     registry = cls()
 
+    data_prefix_systems = {
+      data_prefix_system['name']: data_prefix_system for data_prefix_system in data['prefix_systems']
+    }
+
     for data_unit in data['units']:
       unit = Unit(
         dimensionality=Dimensionality({ DimensionName(dimension): power for dimension, power in data_unit['dimensionality'].items() }),
@@ -442,7 +469,6 @@ class UnitRegistry:
         symbol=ensure_tuple(data_unit['symbol']),
         offset=data_unit.get('offset', 0.0),
         registry=registry,
-        systems=frozenset({SystemName(system) for system in data_unit.get('systems', ["SI"])}),
         value=data_unit.get('value', 1.0)
       )
 
@@ -456,18 +482,17 @@ class UnitRegistry:
 
       while prefixsys_names:
         prefixsys_name = prefixsys_names.pop()
-        data_prefixsys = data['prefix_systems'][prefixsys_name]
+        data_prefix_system = data_prefix_systems[prefixsys_name]
 
-        prefixsys_names += data_prefixsys.get('extend', list())
+        prefixsys_names += data_prefix_system.get('extend', list())
 
-        for data_prefix in data_prefixsys.get('prefixes', list()):
+        for data_prefix in data_prefix_system.get('prefixes', list()):
           prefixed_unit = Unit(
             dimensionality=unit.dimensionality,
             offset=unit.offset,
             label=(data_prefix['label'] + unit.label[0], data_prefix['label'] + unit.label[1]),
             registry=registry,
             symbol=(data_prefix['symbol'] + unit.symbol[0], data_prefix['symbol'] + unit.symbol[1]),
-            systems=unit.systems,
             value=(data_prefix['factor'] * unit.value)
           )
 
@@ -490,24 +515,32 @@ class UnitRegistry:
 
       registry._unit_groups[unit.symbol[0]] = all_units
 
-    for data_assembly in data['assemblies']:
-      dimensionality: Optional[Dimensionality] = None
-      options = list[UnitAssemblyOption]()
+    for data_context in data['contexts']:
+      context_dimensionality: Optional[Dimensionality] = None
+      variants = list[ContextVariant]()
 
-      for data_option in data_assembly['options']:
-        option, option_dimensionality = parse_assembly(data_option, registry)
+      for data_variant in data_context['variants']:
+        options = list[ConstantUnitAssembly]()
 
-        if dimensionality is None:
-          dimensionality = option_dimensionality
-        elif dimensionality != option_dimensionality:
-          raise ValueError("Invalid dimensionality")
+        for data_option in data_variant['options']:
+          assembly, option_dimensionality = parse_assembly(data_option, registry)
 
-        options.append(option)
+          if context_dimensionality is None:
+            context_dimensionality = option_dimensionality
+          elif context_dimensionality != option_dimensionality:
+            raise ValueError("Invalid dimensionality")
 
-      if dimensionality is None:
+          if assembly.variable_part:
+            options += [[*assembly.before_variable_parts, UnitAssemblyConstantPart(unit, assembly.variable_part.power), *assembly.after_variable_parts] for unit in assembly.variable_part.units]
+          else:
+            options.append(assembly.before_variable_parts)
+
+        variants.append(ContextVariant(options, systems=set(data_variant['systems'])))
+
+      if context_dimensionality is None:
         continue
 
-      registry._assemblies[data_assembly['name']] = UnitAssembly(dimensionality, options)
+      registry._contexts[data_context['name']] = Context(context_dimensionality, variants)
 
     return registry
 
