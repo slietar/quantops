@@ -1,11 +1,10 @@
-from importlib.resources import files
 import json
 from pathlib import Path
 
 from .core import UnitRegistry
 
 
-ureg = UnitRegistry.load(files("quantops").joinpath("registry.toml").open("rb"))
+ureg = UnitRegistry.load_default()
 
 data_path = Path(__file__).parent / "../../javascript/data/registry.json"
 data_path.parent.mkdir(exist_ok=True, parents=True)

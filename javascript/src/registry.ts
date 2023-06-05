@@ -95,11 +95,11 @@ export class UnitRegistry {
 
     return [
       ...(value < 0 ? ['&ndash;'] : []),
-      Math.abs(value).toFixed(decimalCount)
+      Math.abs(value).toFixed(isFinite(decimalCount) ? decimalCount : 0)
     ];
   }
 
-  formatRangeAsReact<T>(min: number, max: number, resolution: number, minOption: ContextVariantOption, maxOption: ContextVariantOption, options: { createElement: CreateElementType<T> }) {
+  formatRangeAsReact<T>(min: number, max: number, resolution: number, minOption: ContextVariantOption, maxOption: ContextVariantOption, options: { createElement: CreateElementType<T>; }) {
     return [
       ...this.formatQuantityAsReact(min, resolution, minOption, { ...options, skipUnit: (maxOption === minOption) }),
       ' &mdash; ',
@@ -119,7 +119,7 @@ console.log(ureg.formatQuantityAsReact(value, 0.1, option, {
   createElement: (...args) => args
 }));
 
-console.log(ureg.formatRangeAsReact(2.0, 5000.0, 0.1,
+console.log(ureg.formatRangeAsReact(2.0, 5000.0, 0.,
   ureg.findBestVariantOption(2.0, variant),
   ureg.findBestVariantOption(5000.0, variant),
   { createElement: (...args) => args }

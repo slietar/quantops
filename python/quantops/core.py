@@ -1,12 +1,12 @@
 import functools
 import math
 import operator
-import tomllib
 from dataclasses import dataclass, field
-from pprint import pprint
-from typing import (IO, Any, Generic, Literal, NewType, NotRequired, Optional,
-                    Self, TypedDict, TypeVar, cast, final, overload)
+from importlib.resources import files
+from typing import (IO, Generic, Literal, NewType, NotRequired, Optional, Self,
+                    TypedDict, TypeVar, cast, final, overload)
 
+import tomllib
 from snaptext import LocatedString
 
 
@@ -60,7 +60,7 @@ class Dimensionality(FrozenDict[DimensionName, float | int]):
 
 class RegistryContextVariantData(TypedDict):
   options: list[str]
-  systems: list[SystemName]
+  systems: NotRequired[list[SystemName]]
 
 class RegistryContextData(TypedDict):
   name: ContextName
@@ -193,6 +193,9 @@ class Quantity:
       value=(self.value * other.value)
     )
 
+  def __rmul__(self, other: float | int):
+    return self.__mul__(other)
+
   def __truediv__(self, other: 'CompositeUnit | Self | float | int', /) -> Self:
     if isinstance(other, (float, int)):
       return self / self.registry.dimensionless(other)
@@ -215,14 +218,14 @@ class Quantity:
   def format(
       self,
       context_name: ContextName | str,
-      resolution: float = 0.0,
       *,
+      resolution: Optional[Self] = None,
       style: Literal['label', 'symbol'] = 'symbol',
       system: SystemName = SystemName("SI")
     ):
     context = self.registry._contexts[context_name]
 
-    if self.dimensionality != context.dimensionality:
+    if (self.dimensionality != context.dimensionality) or (resolution and (resolution.dimensionality != context.dimensionality)):
       raise ValueError("Dimensionality mismatch")
 
     variant = next(variant for variant in context.variants if system in variant.systems)
@@ -232,7 +235,7 @@ class Quantity:
       return (value < 1, value * (1 if value > 1 else -1))
 
     option = sorted([option for option in variant.options], key=order)[0] if math.isfinite(self.value) else variant.options[0]
-    return format_quantity(self.value, resolution, option, style=style)
+    return format_quantity(self.value, resolution.value if resolution else 0.0, option, style=style)
 
   def __repr__(self):
     assembly = ConstantUnitAssembly()
@@ -557,7 +560,7 @@ class UnitRegistry:
           functools.reduce(operator.mul, [part.unit.value ** part.power for part in option_assembly])
         ) for option_assembly in option_assemblies]
 
-        variants.append(ContextVariant(options, systems=set(data_variant['systems'])))
+        variants.append(ContextVariant(options, systems=set(data_variant.get('systems', [SystemName("SI")]))))
 
       if context_dimensionality is None:
         continue
@@ -565,6 +568,10 @@ class UnitRegistry:
       registry._contexts[data_context['name']] = Context(context_dimensionality, variants)
 
     return registry
+
+  @classmethod
+  def load_default(cls):
+    return cls.load(files("quantops").joinpath("registry.toml").open("rb"))
 
 
 __all__ = [

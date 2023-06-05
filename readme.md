@@ -24,9 +24,9 @@ from quantops import UnitRegistry
 ureg = UnitRegistry.load_default()
 
 
-x = 0.003 * ureg.meter
-x.format('length', resolution=(0.00001 * ureg.meter))
-# => 300.0 mm
+x = 3 * ureg.mm
+x.format('length', resolution=(10 * ureg.micrometer))
+# => 3.00 mm
 
 x.format('length', system='imperial')
 # => ...
@@ -64,7 +64,7 @@ serialized = x.serialize()
 import { UnitRegistry } from 'quantops';
 
 let ureg = new UnitRegistry();
-let x = ureg.load(serialized); // Transferred rom above
+let x = ureg.load(serialized); // Transferred from above
 
 x.format('length', { resolution: 0.00001 * ureg.meter });
 ```
