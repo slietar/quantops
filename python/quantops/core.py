@@ -1,4 +1,5 @@
 import functools
+import math
 import operator
 import tomllib
 from dataclasses import dataclass, field
@@ -93,8 +94,47 @@ class RegistryData(TypedDict):
   prefix_systems: list[RegistryPrefixSystemData]
   units: list[RegistryUnitData]
 
+
 def format_superscript(number: float | int, /):
   return str().join(SUPERSCRIPT_CHARS[digit] for digit in str(number))
+
+def format_assembly(assembly: 'ConstantUnitAssembly', *, style: Literal['label', 'symbol']):
+    output = str()
+
+    for index, part in enumerate(assembly):
+      if index > 0:
+        output += ("/" if part.power < 0 else "*")
+
+      plural = (index < 1) and (part.power > 0)
+
+      if style == 'label':
+        output += part.unit.label[1 if plural else 0]
+      if style == 'symbol':
+        output += part.unit.symbol[1 if plural else 0]
+
+      if (part.power != 1) and ((index < 1) or (part.power != -1)):
+        output += format_superscript(abs(part.power) if (index > 0) else part.power)
+
+    return output
+
+def format_quantity(value: float, resolution: float, option: 'ContextVariantOption', *, style: Literal['label', 'symbol']):
+  decimal_count = max(0, math.ceil(-math.log10(resolution / option.value))) if (resolution > 0) else None
+  output = str()
+
+  if value < 0:
+    output += '-'
+
+  output += format(abs(value / option.value), f".{decimal_count}f" if (decimal_count is not None) else "e")
+
+  if option.assembly:
+    assembled = format_assembly(option.assembly, style=style)
+
+    if not assembled.startswith("°"):
+      output += " "
+
+    output += assembled
+
+  return output
 
 
 @final
@@ -172,71 +212,39 @@ class Quantity:
       value=(self.value ** other)
     )
 
-  def format(self, assembly_name: str, *, style: Literal['label', 'symbol'] = 'symbol', system: SystemName = SystemName("SI")):
-    assembly = self.registry._assemblies[assembly_name]
-    # print(assembly)
-    # return
+  def format(
+      self,
+      context_name: ContextName | str,
+      resolution: float = 0.0,
+      *,
+      style: Literal['label', 'symbol'] = 'symbol',
+      system: SystemName = SystemName("SI")
+    ):
+    context = self.registry._contexts[context_name]
 
-    if self.dimensionality != assembly.dimensionality:
+    if self.dimensionality != context.dimensionality:
       raise ValueError("Dimensionality mismatch")
 
-    def unit_matches(unit: Unit):
-      return (system in unit.systems)
+    variant = next(variant for variant in context.variants if system in variant.systems)
 
-    FactoredUnit = tuple[Unit, float]
-    hypotheses = list[tuple[list[FactoredUnit], float]]()
+    def order(option: ContextVariantOption):
+      value = self.value / option.value
+      return (value < 1, value * (1 if value > 1 else -1))
 
-    for option in assembly.options:
-      option_components = list[FactoredUnit]()
-      option_value = self.value
+    option = sorted([option for option in variant.options], key=order)[0] if math.isfinite(self.value) else variant.options[0]
+    return format_quantity(self.value, resolution, option, style=style)
 
-      for component_index, (component_units, component_factor) in enumerate(option.components):
-        matching_unit = next((unit for unit in component_units if unit_matches(unit)), None)
+  def __repr__(self):
+    assembly = ConstantUnitAssembly()
 
-        if matching_unit is None:
-          # TODO: Fix
-          raise RuntimeError
+    for dimension, power in self.dimensionality.items():
+      unit = next(unit for unit in self.registry._units_by_name.values() if (unit.dimensionality == Dimensionality({ dimension: 1 })) and (unit.offset == 0.0) and (unit.value == 1.0))
+      assembly.append(UnitAssemblyConstantPart(unit, power))
 
-        if component_index == option.variable_index:
-          continue
+    assembly = sorted(assembly, key=(lambda part: -part.power))
+    quantity = format_quantity(self.value, 0.0, ContextVariantOption(assembly, 1.0), style='symbol')
 
-        option_components.append((matching_unit, component_factor))
-        option_value /= matching_unit.value ** component_factor
-
-      if option.variable_index is not None:
-        var_component_units, var_component_factor = option.components[option.variable_index]
-        has_offset = False
-        var_component_units = list((unit, (option_value - (unit.offset if has_offset else 0.0)) / unit.value ** var_component_factor) for unit in var_component_units if unit_matches(unit))
-        var_component_unit, option_value = sorted([(unit, quant) for unit, quant in var_component_units], key=(lambda item: (abs(item[1]) < 1.0, item[1])))[0]
-
-        hypotheses.append(([
-          *option_components[0:option.variable_index],
-          (var_component_unit, var_component_factor),
-          *option_components[option.variable_index:],
-        ], option_value))
-      else:
-        hypotheses.append((option_components, option_value))
-
-    factored_units, value = sorted([(components, value) for components, value in hypotheses], key=(lambda item: (abs(item[1]) < 1.0, item[1])))[0]
-    # has_offset = (len(self.dimensionality) == 1) and (var_dimension_factor == 1.0)
-
-    output = str()
-
-    for index, (unit, factor) in enumerate(factored_units):
-      if index > 0:
-        output += ("/" if factor < 0 else "*")
-
-      plural = (index < 1) and (factor > 0)
-
-      if style == 'label':
-        output += unit.label[1 if plural else 0]
-      if style == 'symbol':
-        output += unit.symbol[1 if plural else 0]
-
-      if (factor != 1) and ((index < 1) or (factor != -1)):
-        output += format_superscript(abs(factor) if (index > 0) else factor)
-
-    return f"{value:.02f} {output}"
+    return f"{self.__class__.__name__}({quantity!r})"
 
 
 @dataclass(frozen=True)
