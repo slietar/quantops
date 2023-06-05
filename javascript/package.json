@@ -2,10 +2,8 @@
   "name": "quantops",
   "version": "0.0.0",
   "type": "module",
-  "exports": {
-    "import": "./lib/index.js",
-    "types": "./types/index.d.ts"
-  },
+  "main": "lib/index.js",
+  "types": "types/index.d.ts",
   "scripts": {
     "build": "esbuild --bundle --format=esm --minify --outfile=lib/index.js src/index.ts",
     "build:types": "tsc",
