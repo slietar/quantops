@@ -300,7 +300,7 @@ class TokenWalker:
     unit = self.accept_composite_unit()
 
     if unit is None:
-      return self.registry.dimensionless(scalar)
+      return self.registry._dimensionless(scalar)
 
     return scalar * unit
 

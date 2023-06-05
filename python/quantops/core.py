@@ -110,6 +110,7 @@ def format_assembly(assembly: 'ConstantUnitAssembly', *, style: Literal['label',
       if style == 'label':
         output += part.unit.label[1 if plural else 0]
       if style == 'symbol':
+        assert part.unit.symbol
         output += part.unit.symbol[1 if plural else 0]
 
       if (part.power != 1) and ((index < 1) or (part.power != -1)):
@@ -153,14 +154,22 @@ class Quantity:
     if self.registry is not other.registry:
       raise ValueError("Operation with different registries")
 
+  @property
+  def dimensionless(self):
+    return not self.dimensionality
+
+  @property
+  def magnitude(self):
+    return self.value
+
   def __hash__(self):
     return hash((frozenset(sorted(self.dimensionality.items())), self.registry, self.value))
 
   def __eq__(self, other: Self, /):
-    self._check_other_dimensionality(other)
-    self._check_other_registry(other)
+    if not isinstance(other, self.__class__):
+      return NotImplemented
 
-    return self.value == other.value
+    return (other.registry is self.registry) and ((other.dimensionality, other.value) == (self.dimensionality, self.value))
 
   def __lt__(self, other: Self, /):
     self._check_other_dimensionality(other)
@@ -170,7 +179,7 @@ class Quantity:
 
   def __add__(self, other: Self | float | int, /):
     if isinstance(other, (float, int)):
-      return self + self.registry.dimensionless(other)
+      return self + self.registry._dimensionless(other)
 
     self._check_other_dimensionality(other)
     self._check_other_registry(other)
@@ -183,7 +192,7 @@ class Quantity:
 
   def __mul__(self, other: 'CompositeUnit | Self | float | int', /) -> Self:
     if isinstance(other, (float, int)):
-      return self * self.registry.dimensionless(other)
+      return self * self.registry._dimensionless(other)
 
     self._check_other_registry(other)
 
@@ -198,7 +207,7 @@ class Quantity:
 
   def __truediv__(self, other: 'CompositeUnit | Self | float | int', /) -> Self:
     if isinstance(other, (float, int)):
-      return self / self.registry.dimensionless(other)
+      return self / self.registry._dimensionless(other)
 
     self._check_other_registry(other)
 
@@ -256,6 +265,13 @@ class CompositeUnit:
   registry: 'UnitRegistry' = field(repr=False)
   value: float
 
+  def find_context(self):
+    for context in self.registry._contexts.values():
+      if context.dimensionality == self.dimensionality:
+        return context
+
+    raise RuntimeError("No matching context")
+
   @overload
   def __mul__(self, other: Self, /) -> 'CompositeUnit':
     ...
@@ -266,7 +282,7 @@ class CompositeUnit:
 
   def __mul__(self, other: Quantity | Self | float | int, /):
     if isinstance(other, (float, int)):
-      return self * self.registry.dimensionless(other)
+      return self * self.registry._dimensionless(other)
 
     if self.registry is not other.registry:
       raise ValueError("Operation with different registries")
@@ -303,7 +319,7 @@ class CompositeUnit:
 
   def __truediv__(self, other: 'CompositeUnit | Quantity | float | int', /):
     if isinstance(other, (float, int)):
-      return self / self.registry.dimensionless(other)
+      return self / (other * self.registry.dimensionless)
 
     if self.registry is not other.registry:
       raise ValueError("Operation with different registries")
@@ -328,16 +344,16 @@ class CompositeUnit:
 
 @final
 @dataclass(frozen=True)
-class Unit(CompositeUnit):
+class AtomicUnit(CompositeUnit):
   dimensionality: Dimensionality
   label: tuple[str, str]
   offset: float
   registry: 'UnitRegistry' = field(repr=False)
-  symbol: tuple[str, str]
+  symbol: Optional[tuple[str, str]]
 
   @property
   def id(self):
-    return UnitId(self.symbol[0])
+    return UnitId(self.symbol[0] if self.symbol else self.label[0])
 
   @overload
   def __mul__(self, other: Self, /) -> 'CompositeUnit':
@@ -360,19 +376,19 @@ class Unit(CompositeUnit):
     return super().__mul__(other)
 
   def __repr__(self):
-    return f"{self.__class__.__name__}({self.symbol[0]!r})"
+    return f"{self.__class__.__name__}({(self.symbol[0] if self.symbol else self.label[0])!r})"
 
 class InvalidUnitNameError(Exception):
   pass
 
 @dataclass(frozen=True)
 class UnitAssemblyConstantPart:
-  unit: Unit
+  unit: AtomicUnit
   power: float
 
 @dataclass(frozen=True)
 class UnitAssemblyVariablePart:
-  units: frozenset[Unit]
+  units: frozenset[AtomicUnit]
   power: float
 
 @dataclass(frozen=True)
@@ -397,17 +413,65 @@ class ContextVariant:
 class Context:
   dimensionality: Dimensionality
   variants: list[ContextVariant]
+  name: Optional[ContextName] = None
+
+  def __repr__(self):
+    return f"{self.__class__.__name__}" + (f"({self.name!r})" if self.name else "()")
+
+  def serialize(self):
+    return {
+      "variants": [
+        {
+          "options": [
+            {
+              "assembly": [[part.unit.id, part.power] for part in option.assembly],
+              "value": option.value
+            } for option in variant.options
+          ],
+          "systems": [system_name for system_name in variant.systems]
+        } for variant in self.variants
+      ]
+    }
+
+  def serialize_external(self):
+    return {
+      "type": "known",
+      "name": self.name
+    } if self.name else {
+      "type": "anonymous",
+      "value": self.serialize()
+    }
 
 
 @final
 class UnitRegistry:
   def __init__(self):
-    self._contexts = dict[str, Context]()
-    self._unit_groups = dict[str, set[Unit]]()
-    self._units_by_id = dict[UnitId, Unit]()
-    self._units_by_name = dict[str, Unit]()
+    self._contexts = dict[ContextName, Context]()
+    self._unit_groups = dict[str, set[AtomicUnit]]()
+    self._units_by_id = dict[UnitId, AtomicUnit]()
+    self._units_by_name = dict[str, AtomicUnit]()
 
-  def dimensionless(self, value: float | int, /):
+    dimensionless_context_name = ContextName("dimensionless")
+    dimensionless_context = Context(
+      dimensionality=Dimensionality(),
+      name=dimensionless_context_name,
+      variants=[ContextVariant([ContextVariantOption([], 1.0)], {SystemName("SI")})]
+    )
+
+    dimensionless_unit = AtomicUnit(
+      dimensionality=Dimensionality(),
+      label=("dimensionless", "dimensionless"),
+      offset=0.0,
+      registry=self,
+      symbol=None,
+      value=1.0
+    )
+
+    self._contexts[dimensionless_context_name] = dimensionless_context
+    self._units_by_id[dimensionless_unit.id] = dimensionless_unit
+    self._units_by_name["dimensionless"] = dimensionless_unit
+
+  def _dimensionless(self, value: float):
     return Quantity(
       dimensionality=Dimensionality(),
       registry=self,
@@ -418,33 +482,41 @@ class UnitRegistry:
     from .parser import parse_assembly
     return parse_assembly(string, self)
 
+  def parse_context(self, string: Context | str, /):
+    from .parser import ParserError
+
+    if isinstance(string, Context):
+      return string
+
+    if not string in self._contexts:
+      raise ParserError("Invalid context", LocatedString(string).area)
+
+    return self._contexts[string]
+
   def parse_quantity(self, string: str, /):
     from .parser import tokenize
 
     walker = tokenize(LocatedString(string), self)
     return walker.expect_only(walker.accept_quantity())
 
+  def parse_unit(self, string: CompositeUnit | str, /):
+    from .parser import tokenize
+
+    if isinstance(string, CompositeUnit):
+      return string
+
+    walker = tokenize(LocatedString(string), self)
+    return walker.expect_only(walker.accept_composite_unit())
+
   def serialize(self):
     return {
       "contexts": {
-        context_name: {
-          "variants": [
-            {
-              "options": [
-                {
-                  "assembly": [[part.unit.id, part.power] for part in option.assembly],
-                  "value": option.value
-                } for option in variant.options
-              ],
-              "systems": list(variant.systems)
-            } for variant in context.variants
-          ]
-        } for context_name, context in self._contexts.items()
+        context_name: context.serialize() for context_name, context in self._contexts.items()
       },
       "units": {
         unit.id: {
           "label": list(unit.label),
-          "symbol": list(unit.symbol),
+          "symbol": (list(unit.symbol) if unit.symbol else None),
           "value": unit.value
         } for unit in self._units_by_id.values()
       }
@@ -456,14 +528,11 @@ class UnitRegistry:
 
     return self._units_by_name[name]
 
-  def __getattribute__(self, name: str, /):
-    try:
-      return super().__getattribute__(name)
-    except AttributeError:
-      if name in self._units_by_name:
-        return self._units_by_name[name]
+  def __getattr__(self, name: str, /):
+    if name in self._units_by_name:
+      return self._units_by_name[name]
 
-      raise
+    raise AttributeError(f"Invalid unit name: '{name}'")
 
 
   @classmethod
@@ -483,10 +552,11 @@ class UnitRegistry:
     }
 
     for data_unit in data['units']:
-      unit = Unit(
+      unit_symbol = ensure_tuple(data_unit['symbol'])
+      unit = AtomicUnit(
         dimensionality=Dimensionality({ DimensionName(dimension): power for dimension, power in data_unit['dimensionality'].items() }),
         label=ensure_tuple(data_unit['label']),
-        symbol=ensure_tuple(data_unit['symbol']),
+        symbol=unit_symbol,
         offset=data_unit.get('offset', 0.0),
         registry=registry,
         value=data_unit.get('value', 1.0)
@@ -494,7 +564,7 @@ class UnitRegistry:
 
       registry._units_by_id[unit.id] = unit
 
-      for name in [*data_unit.get('label_names', unit.label), *data_unit.get('symbol_names', unit.symbol)]:
+      for name in [*data_unit.get('label_names', unit.label), *data_unit.get('symbol_names', unit_symbol)]:
         registry._units_by_name[name] = unit
 
       all_units = {unit}
@@ -507,12 +577,12 @@ class UnitRegistry:
         prefixsys_names += data_prefix_system.get('extend', list())
 
         for data_prefix in data_prefix_system.get('prefixes', list()):
-          prefixed_unit = Unit(
+          prefixed_unit = AtomicUnit(
             dimensionality=unit.dimensionality,
             offset=unit.offset,
             label=(data_prefix['label'] + unit.label[0], data_prefix['label'] + unit.label[1]),
             registry=registry,
-            symbol=(data_prefix['symbol'] + unit.symbol[0], data_prefix['symbol'] + unit.symbol[1]),
+            symbol=(data_prefix['symbol'] + unit_symbol[0], data_prefix['symbol'] + unit_symbol[1]),
             value=(data_prefix['factor'] * unit.value)
           )
 
@@ -521,7 +591,7 @@ class UnitRegistry:
           for name in data_unit.get('label_names', unit.label):
             registry._units_by_name[data_prefix['label'] + name] = prefixed_unit
 
-          for symbol_name in data_unit.get('symbol_names', unit.symbol):
+          for symbol_name in data_unit.get('symbol_names', unit_symbol):
             for prefix_name in data_prefix.get('symbol_names', [data_prefix['symbol']]):
               registry._units_by_name[prefix_name + symbol_name] = prefixed_unit
 
@@ -533,7 +603,7 @@ class UnitRegistry:
         if dimension_factor == 1:
           registry._unit_groups.setdefault(dimension_name, set()).update(all_units)
 
-      registry._unit_groups[unit.symbol[0]] = all_units
+      registry._unit_groups[unit_symbol[0]] = all_units
 
     for data_context in data['contexts']:
       context_dimensionality: Optional[Dimensionality] = None
@@ -565,7 +635,8 @@ class UnitRegistry:
       if context_dimensionality is None:
         continue
 
-      registry._contexts[data_context['name']] = Context(context_dimensionality, variants)
+      context_name = ContextName(data_context['name'])
+      registry._contexts[context_name] = Context(context_dimensionality, variants, name=context_name)
 
     return registry
 
@@ -574,7 +645,14 @@ class UnitRegistry:
     return cls.load(files("quantops").joinpath("registry.toml").open("rb"))
 
 
+Unit = CompositeUnit
+
+
 __all__ = [
+  'AtomicUnit',
+  'CompositeUnit',
+  'Context',
+  'Dimensionality',
   'DimensionName',
   'InvalidUnitNameError',
   'PrefixSystemName',
