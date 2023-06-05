@@ -1,6 +1,10 @@
+
+## PREFIX SYSTEMS ########
+
+
 [[prefix_systems]]
 name = "SI"
-extend = ["LowerSI", "KiloSI", "UpperSI"]
+extend = ["LowerSI", "UpperSI"]
 
 [[prefix_systems]]
 name = "KiloSI"
@@ -10,6 +14,7 @@ prefixes = [
 
 [[prefix_systems]]
 name = "UpperSI"
+extend = ["KiloSI"]
 prefixes = [
   { factor = 1e6, label = "mega", symbol = "M" },
   { factor = 1e9, label = "giga", symbol = "G" },
@@ -38,6 +43,10 @@ prefixes = [
 ]
 
 
+
+## UNITS ########
+
+
 [[units]]
 dimensionality = { length = 1 }
 label = ["meter", "meters"]
@@ -46,14 +55,22 @@ symbol = "m"
 prefixes = ["LowerSI", "KiloSI"]
 
 [[units]]
+dimensionality = { mass = 1 }
+label = ["gram", "grams"]
+symbol = "g"
+prefixes = ["LowerSI", "KiloSI"]
+
+[[units]]
 dimensionality = { length = 1, mass = 1, time = -2 }
 label = ["newton", "newtons"]
+prefixes = ["LowerSI", "UpperSI"]
 symbol = "N"
-prefixes = ["LowerSI", "KiloSI", "UpperSI"]
 
 [[units]]
 dimensionality = { time = 1 }
 label = ["second", "seconds"]
+label_names = ["sec", "second", "seconds"]
+prefixes = ["LowerSI"]
 symbol = "s"
 
 [[units]]
@@ -70,6 +87,18 @@ symbol_names = ["h", "hr", "hrs"]
 value = 3600
 
 [[units]]
+dimensionality = { time = 1 }
+label = ["day", "days"]
+symbol = "d"
+value = 86_400
+
+[[units]]
+dimensionality = { time = 1 }
+label = ["year", "years"]
+symbol = "y"
+value = 31_536_000
+
+[[units]]
 dimensionality = { length = 1, time = -1 }
 label = ["kilometer per hour", "kilometers per hour"]
 label_names = []
@@ -80,16 +109,51 @@ value = 0.277778
 dimensionality = { length = 3 }
 label = ["liter", "liters"]
 label_names = ["liter", "liters", "litre", "litres"]
-symbol = "l"
 prefixes = ["LowerSI"]
+symbol = "l"
 value = 1e-3
 
+[[units]]
+dimensionality = { temperature = 1 }
+label = ["Celsius degree", "Celsius degrees"]
+label_names = []
+offset = 273.15
+symbol = "°C"
+symbol_names = ["degC"]
+
+[[units]]
+dimensionality = { temperature = 1 }
+label = "kelvin"
+prefixes = ["LowerSI"]
+symbol = "K"
+
+[[units]]
+dimensionality = { memory = 1 }
+label = ["byte", "bytes"]
+prefixes = ["SI"]
+symbol = "B"
+
+
+
+## CONTEXTS ########
+
+
+[[contexts]]
+name = "length"
+
+  [[contexts.variants]]
+  options = ["~m"]
+  systems = ["SI"]
+
+[[contexts]]
+name = "time"
+variants = [{ options = ["s", "min", "hr", "day", "year"] }]
 
 [[contexts]]
 name = "velocity"
 
   [[contexts.variants]]
-  options = ["~m/s", "hr^-1*km"]
+  options = ["~m/s"]
   systems = ["SI"]
 
 [[contexts]]
@@ -106,10 +170,24 @@ name = "flowrate"
   options = ["~l/min"]
   systems = ["SI"]
 
-# [[units]]
-# dimensionality = { temperature = 1 }
-# label = ["Celsius degree", "Celsius degrees"]
-# label_names = []
-# offset = 273.15
-# symbol = "°C"
-# symbol_names = ["degC"]
+[[contexts]]
+name = "temperature"
+
+  [[contexts.variants]]
+  options = ["~degC"]
+  systems = ["SI"]
+
+[[contexts]]
+name = "physics.temperature"
+
+  [[contexts.variants]]
+  options = ["~K"]
+  systems = ["SI"]
+
+[[contexts]]
+name = "dna_concentration"
+variants = [{ options = ["ng/ul"] }]
+
+[[contexts]]
+name = "memory"
+variants = [{ options = ["~B"] }]
