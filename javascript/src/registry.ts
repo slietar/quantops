@@ -52,8 +52,8 @@ export class UnitRegistry {
 
   findBestVariantOption(value: number, variant: ContextVariant) {
     return variant.options.slice().sort((a, b) => {
-      let aValue = value / a.value;
-      let bValue = value / b.value;
+      let aValue = Math.abs(value / a.value);
+      let bValue = Math.abs(value / b.value);
 
       let bool = (v: boolean) => v ? 1 : -1;
       return (bool(aValue < 1) - bool(bValue < 1)) || (aValue - bValue) * bool(aValue > 1);
@@ -142,7 +142,20 @@ export class UnitRegistry {
     ];
   }
 
-  formatRangeAsReact<T>(min: number, max: number, resolution: number, minOption: ContextVariantOption, maxOption: ContextVariantOption, options: { createElement: CreateElementType<T>; }) {
+  formatRangeAsReact<T>(min: number, max: number, resolution: number, context: Context | string, options: { createElement: CreateElementType<T>; }) {
+    let variant = this.findVariant(this.getContext(context), { system: 'SI' });
+
+    return this.formatRangeWithContextAsReact(
+      min,
+      max,
+      resolution,
+      this.findBestVariantOption(min, variant),
+      this.findBestVariantOption(max, variant),
+      options
+    );
+  }
+
+  formatRangeWithContextAsReact<T>(min: number, max: number, resolution: number, minOption: ContextVariantOption, maxOption: ContextVariantOption, options: { createElement: CreateElementType<T>; }) {
     return [
       ...this.formatQuantityWithContextAsReact(min, resolution, minOption, { ...options, skipUnit: (maxOption === minOption) }),
       ' \u2014 ', // &mdash;

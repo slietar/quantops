@@ -365,11 +365,6 @@ class TokenWalker:
     return value
 
 
-def parse_assembly(string: str, /, registry: UnitRegistry):
-  walker = tokenize(LocatedString(string), registry)
-  return walker.expect_only(walker.accept_assembly())
-
-
 __all__ = [
   'ParserError'
 ]

@@ -162,6 +162,13 @@ class Quantity:
   def magnitude(self):
     return self.value
 
+  def find_context(self):
+    for context in self.registry._contexts.values():
+      if context.dimensionality == self.dimensionality:
+        return context
+
+    raise RuntimeError("No matching context")
+
   def __hash__(self):
     return hash((frozenset(sorted(self.dimensionality.items())), self.registry, self.value))
 
@@ -478,11 +485,7 @@ class UnitRegistry:
       value=value
     )
 
-  def parse_assembly(self, string: str, /):
-    from .parser import parse_assembly
-    return parse_assembly(string, self)
-
-  def parse_context(self, string: Context | str, /):
+  def get_context(self, string: Context | str, /):
     from .parser import ParserError
 
     if isinstance(string, Context):
@@ -492,6 +495,28 @@ class UnitRegistry:
       raise ParserError("Invalid context", LocatedString(string).area)
 
     return self._contexts[string]
+
+  def parse_assembly_as_context(self, string: str, /):
+    from .parser import tokenize
+
+    walker = tokenize(LocatedString(string), self)
+    assembly, dimensionality = walker.expect_only(walker.accept_assembly())
+
+    if assembly.variable_part:
+      assemblies = [[*assembly.before_variable_parts, UnitAssemblyConstantPart(unit, assembly.variable_part.power), *assembly.after_variable_parts] for unit in assembly.variable_part.units]
+    else:
+      assemblies = [assembly.before_variable_parts]
+
+    return Context(
+      dimensionality,
+      [ContextVariant(
+        [ContextVariantOption(
+          assembly,
+          functools.reduce(operator.mul, [part.unit.value ** part.power for part in assembly])
+        ) for assembly in assemblies],
+        systems={SystemName("SI")},
+      )]
+    )
 
   def parse_quantity(self, string: str, /):
     from .parser import tokenize
@@ -537,7 +562,7 @@ class UnitRegistry:
 
   @classmethod
   def load(cls, file: IO[bytes]):
-    from .parser import parse_assembly
+    from .parser import tokenize
 
     data = cast(RegistryData, tomllib.load(file))
     # pprint(data)
@@ -613,7 +638,8 @@ class UnitRegistry:
         option_assemblies = list[ConstantUnitAssembly]()
 
         for data_option in data_variant['options']:
-          assembly, option_dimensionality = parse_assembly(data_option, registry)
+          walker = tokenize(LocatedString(data_option), registry)
+          assembly, option_dimensionality = walker.expect_only(walker.accept_assembly())
 
           if context_dimensionality is None:
             context_dimensionality = option_dimensionality
@@ -645,6 +671,7 @@ class UnitRegistry:
     return cls.load(files("quantops").joinpath("registry.toml").open("rb"))
 
 
+QuantityContext = Context
 Unit = CompositeUnit
 
 
@@ -657,6 +684,7 @@ __all__ = [
   'InvalidUnitNameError',
   'PrefixSystemName',
   'Quantity',
+  'QuantityContext',
   'SystemName',
   'Unit',
   'UnitRegistry'
