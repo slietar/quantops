@@ -59,6 +59,7 @@ dimensionality = { mass = 1 }
 label = ["gram", "grams"]
 symbol = "g"
 prefixes = ["LowerSI", "KiloSI"]
+value = 1e-3
 
 [[units]]
 dimensionality = { length = 1, mass = 1, time = -2 }
@@ -133,6 +134,32 @@ label = ["byte", "bytes"]
 prefixes = ["SI"]
 symbol = "B"
 
+[[units]]
+dimensionality = { length = -1, mass = 1, time = -2 }
+label = ["pascal", "pascals"]
+prefixes = ["SI"]
+symbol = "Pa"
+
+[[units]]
+dimensionality = { length = -1, mass = 1, time = -2 }
+label = ["pound per square inch", "pounds per square inch"]
+label_names = []
+prefixes = ["SI"]
+symbol = "psi"
+value = 6.894757e3
+
+[[units]]
+dimensionality = { length = -1, mass = 1, time = -2 }
+label = ["bar", "bars"]
+symbol = "bar"
+value = 1e5
+
+[[units]]
+dimensionality = { length = -1, mass = 1, time = -2 }
+label = ["standard atmosphere", "standard atmospheres"]
+symbol = "atm"
+value = 101.325e3
+
 
 
 ## CONTEXTS ########
@@ -191,3 +218,11 @@ variants = [{ options = ["ng/ul"] }]
 [[contexts]]
 name = "memory"
 variants = [{ options = ["~B"] }]
+
+[[contexts]]
+name = "pressure"
+variants = [{ options = ["~Pa"] }]
+
+[[contexts]]
+name = "pressure:psi"
+variants = [{ options = ["~psi"] }]
