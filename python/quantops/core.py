@@ -3,8 +3,8 @@ import math
 import operator
 from dataclasses import dataclass, field
 from importlib.resources import files
-from typing import (IO, Generic, Literal, NewType, NotRequired, Optional, Self,
-                    TypedDict, TypeVar, cast, final, overload)
+from typing import (IO, ClassVar, Generic, Literal, NewType, NotRequired,
+                    Optional, Self, TypedDict, TypeVar, cast, final, overload)
 
 import tomllib
 from snaptext import LocatedString
@@ -239,7 +239,7 @@ class Quantity:
       style: Literal['label', 'symbol'] = 'symbol',
       system: SystemName = SystemName("SI")
     ):
-    context = self.registry._contexts[context_name]
+    context = self.registry._contexts[ContextName(context_name)]
 
     if (self.dimensionality != context.dimensionality) or (resolution and (resolution.dimensionality != context.dimensionality)):
       raise ValueError("Dimensionality mismatch")
@@ -312,7 +312,7 @@ class CompositeUnit:
   def __rmul__(self, other: Quantity | float | int, /) -> Quantity:
     ...
 
-  def __rmul__(self, other:  'CompositeUnit | Quantity | float | int', /):
+  def __rmul__(self, other: 'CompositeUnit | Quantity | float | int', /):
     return self * other
 
 
@@ -452,12 +452,27 @@ class Context:
 
 @final
 class UnitRegistry:
-  def __init__(self):
-    self._contexts = dict[ContextName, Context]()
-    self._unit_groups = dict[str, set[AtomicUnit]]()
-    self._units_by_id = dict[UnitId, AtomicUnit]()
-    self._units_by_name = dict[str, AtomicUnit]()
+  _default: ClassVar[Optional[Self]] = None
 
+  _contexts: dict[ContextName, Context]
+  _unit_groups: dict[str, set[AtomicUnit]]
+  _units_by_id: dict[UnitId, AtomicUnit]
+  _units_by_name: dict[str, AtomicUnit]
+
+  def __new__(cls, *, _default: bool = False):
+    if _default:
+      return cls.get_default()
+
+    self = super().__new__(cls)
+
+    self._contexts = dict()
+    self._unit_groups = dict()
+    self._units_by_id = dict()
+    self._units_by_name = dict()
+
+    return self
+
+  def __init__(self):
     dimensionless_context_name = ContextName("dimensionless")
     dimensionless_context = Context(
       dimensionality=Dimensionality(),
@@ -558,6 +573,12 @@ class UnitRegistry:
       return self._units_by_name[name]
 
     raise AttributeError(f"Invalid unit name: '{name}'")
+
+  def __getstate__(self):
+    return dict() if self is self._default else self.__dict__
+
+  def __getnewargs_ex__(self):
+    return tuple(), dict(_default=(self is self._default))
 
 
   @classmethod
@@ -665,6 +686,11 @@ class UnitRegistry:
       registry._contexts[context_name] = Context(context_dimensionality, variants, name=context_name)
 
     return registry
+
+  @classmethod
+  def get_default(cls):
+    cls._default = cls._default or cls.load_default()
+    return cls._default
 
   @classmethod
   def load_default(cls):
