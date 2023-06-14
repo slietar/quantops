@@ -1,7 +1,30 @@
-import { ReactNode } from 'react';
-
 import defaultRegistryData from '../data/registry.json';
 import { ConstantAssembly, Context, ContextName, ContextVariant, ContextVariantOption, Data, SystemName } from './data.js';
+
+
+const SUPERSCRIPT_CHARS: Record<string, string> = {
+  '0': '\u2070',
+  '1': '\u00b9',
+  '2': '\u00b2',
+  '3': '\u00b3',
+  '4': '\u2074',
+  '5': '\u2075',
+  '6': '\u2076',
+  '7': '\u2077',
+  '8': '\u2078',
+  '9': '\u2079',
+  '+': '\u207a',
+  '-': '\u207b'
+};
+
+export function formatSuperscript(value: number, options?: { sign?: unknown; }) {
+  return (((value < 0)
+    ? '-'
+    : ((options?.sign && (value > 0))
+      ? '+'
+      : '')
+  ) + Math.abs(value).toString()).split('').map((char) => SUPERSCRIPT_CHARS[char]).join('');
+}
 
 
 export type SerializedContext = {
@@ -42,7 +65,7 @@ export class UnitRegistry {
     let minOption = this.findBestVariantOption(min, variant);
     let maxOption = this.findBestVariantOption(max, variant);
 
-    let sortedOptions = variant.options.slice().sort((a, b) => (b.value - a.value));
+    let sortedOptions = variant.options.slice().sort((a, b) => (a.value - b.value));
 
     return sortedOptions.slice(
       sortedOptions.indexOf(minOption),
@@ -80,9 +103,9 @@ export class UnitRegistry {
     sign?: unknown;
     skipUnit?: boolean;
     style?: 'label' | 'symbol';
-  }): [Node<T>, Node<T>, Node<T>] & Node<T> {
+  }): [string, Node<T>, Node<T>] & Node<T> {
     return [
-      this.formatMagnitudeAsReact(value / option.value, resolution / option.value, { sign: options.sign }),
+      this.formatMagnitude(value / option.value, resolution / option.value, { sign: options.sign }),
       ...(!options.skipUnit && (option.assembly.length > 0)
         ? [
           '\xa0', // &nbsp;
@@ -120,7 +143,7 @@ export class UnitRegistry {
       }
 
       if ((power !== 1) && ((index < 1) || (power !== -1))) {
-        output.push(options.createElement('sup', {},
+        output.push(options.createElement('sup', { key: output.length },
           (index > 0 ? Math.abs(power) : power).toString()
         ));
       }
@@ -129,7 +152,38 @@ export class UnitRegistry {
     return output;
   }
 
-  formatMagnitudeAsReact(value: number, resolution: number, options?: { sign?: unknown; }) {
+  formatAssemblyAsText(assembly: ConstantAssembly, options?: {
+    style?: 'label' | 'symbol';
+  }) {
+    let output = '';
+
+    for (let [index, [unitId, power]] of assembly.entries()) {
+      let unit = this.data.units[unitId];
+
+      if (index > 0) {
+        output += (power < 0 ? '/' : '\xb7'); // &middot;
+      }
+
+      let plural = (index < 1) && (power > 0);
+
+      switch (options?.style ?? 'symbol') {
+        case 'label':
+          output += (plural ? unit.label[1] : unit.label[0]);
+          break;
+        case 'symbol':
+          output += (plural ? unit.symbol[1] : unit.symbol[0]);
+          break;
+      }
+
+      if ((power !== 1) && ((index < 1) || (power !== -1))) {
+        output += formatSuperscript(index > 0 ? Math.abs(power) : power);
+      }
+    }
+
+    return output;
+  }
+
+  formatMagnitude(value: number, resolution: number, options?: { sign?: unknown; }) {
     let decimalCount = Math.max(0, Math.ceil(-Math.log10(resolution)));
 
     return [
@@ -139,7 +193,7 @@ export class UnitRegistry {
           ? ['+\u2009']
           : []),
       Math.abs(value).toFixed(isFinite(decimalCount) ? decimalCount : 0)
-    ];
+    ].join('');
   }
 
   formatRangeAsReact<T>(min: number, max: number, resolution: number, context: Context | string, options: { createElement: CreateElementType<T>; }) {
