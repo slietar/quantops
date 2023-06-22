@@ -20,3 +20,6 @@ repository = "https://github.com/slietar/quantops"
 
 [tool.setuptools.packages.find]
 include = ["quantops"]
+
+[tool.setuptools.package-data]
+"quantops" = ["registry.toml"]
