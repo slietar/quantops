@@ -45,10 +45,20 @@ export class UnitRegistry {
     this.data = data;
   }
 
+  applyOption(value: number, option: ContextVariantOption) {
+    return value * option.value + this.getOptionOffset(option);
+  }
+
   getContext(context: Context | string) {
     return (typeof context === 'string')
       ? this.data.contexts[context]
       : context;
+  }
+
+  getOptionOffset(option: ContextVariantOption) {
+    return (option.assembly.length === 1)
+      ? this.data.units[option.assembly[0][0]].offset
+      : 0;
   }
 
   deserializeContext(serializedContext: SerializedContext) {
@@ -104,17 +114,8 @@ export class UnitRegistry {
     skipUnit?: boolean;
     style?: 'label' | 'symbol';
   }): [string, Node<T>, Node<T>] & Node<T> {
-    let offset = 0;
-
-    if (option.assembly.length === 1) {
-      let unitId = option.assembly[0][0];
-      let unit = this.data.units[unitId];
-
-      offset = unit.offset;
-    }
-
     return [
-      this.formatMagnitude((value - offset) / option.value, resolution / option.value, { sign: options.sign }),
+      this.formatMagnitude(value, resolution, option, { sign: options.sign }),
       ...(!options.skipUnit && (option.assembly.length > 0)
         ? [
           '\xa0', // &nbsp;
@@ -192,16 +193,17 @@ export class UnitRegistry {
     return output;
   }
 
-  formatMagnitude(value: number, resolution: number, options?: { sign?: unknown; }) {
-    let decimalCount = Math.max(0, Math.ceil(-Math.log10(resolution)));
+  formatMagnitude(value: number, resolution: number, option: ContextVariantOption, options?: { sign?: unknown; }) {
+    let magnitude = (value - this.getOptionOffset(option)) / option.value;
+    let decimalCount = Math.max(0, Math.ceil(-Math.log10(resolution / option.value)));
 
     return [
-      ...((value < 0)
+      ...((magnitude < 0)
         ? ['\u2212\u2009'] // &minus; &thinsp;
         : options?.sign
           ? ['+\u2009']
           : []),
-      Math.abs(value).toFixed(isFinite(decimalCount) ? decimalCount : 0)
+      Math.abs(magnitude).toFixed(isFinite(decimalCount) ? decimalCount : 0)
     ].join('');
   }
 
