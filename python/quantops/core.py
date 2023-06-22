@@ -251,7 +251,12 @@ class Quantity:
       return (value < 1, value * (1 if value > 1 else -1))
 
     option = sorted([option for option in variant.options], key=order)[0] if math.isfinite(self.value) else variant.options[0]
-    return format_quantity(self.value, resolution.value if resolution else 0.0, option, style=style)
+    value = self.value
+
+    if len(option.assembly) == 1:
+      value -= option.assembly[0].unit.offset
+
+    return format_quantity(value, resolution.value if resolution else 0.0, option, style=style)
 
   def __repr__(self):
     assembly = ConstantUnitAssembly()
@@ -556,6 +561,7 @@ class UnitRegistry:
       "units": {
         unit.id: {
           "label": list(unit.label),
+          "offset": unit.offset,
           "symbol": (list(unit.symbol) if unit.symbol else None),
           "value": unit.value
         } for unit in self._units_by_id.values()

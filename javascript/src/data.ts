@@ -4,6 +4,7 @@ export type UnitId = string;
 
 export interface Unit {
   label: [string, string];
+  offset: number;
   symbol: [string, string];
   value: number;
 }

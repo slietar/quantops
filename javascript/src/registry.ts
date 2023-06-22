@@ -104,8 +104,17 @@ export class UnitRegistry {
     skipUnit?: boolean;
     style?: 'label' | 'symbol';
   }): [string, Node<T>, Node<T>] & Node<T> {
+    let offset = 0;
+
+    if (option.assembly.length === 1) {
+      let unitId = option.assembly[0][0];
+      let unit = this.data.units[unitId];
+
+      offset = unit.offset;
+    }
+
     return [
-      this.formatMagnitude(value / option.value, resolution / option.value, { sign: options.sign }),
+      this.formatMagnitude((value - offset) / option.value, resolution / option.value, { sign: options.sign }),
       ...(!options.skipUnit && (option.assembly.length > 0)
         ? [
           '\xa0', // &nbsp;
