@@ -41,6 +41,8 @@ z.format('car_velocity')
 ```
 
 ```py
+from quantops import Context
+
 # Custom contexts
 
 flowrate_context = Context({
@@ -66,5 +68,5 @@ import { UnitRegistry } from 'quantops';
 let ureg = new UnitRegistry();
 let x = ureg.load(serialized); // Transferred from above
 
-x.format('length', { resolution: 0.00001 * ureg.meter });
+x.format('length', { resolution: 0.00001 });
 ```

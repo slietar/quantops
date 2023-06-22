@@ -5,7 +5,9 @@
   "main": "lib/index.js",
   "types": "types/index.d.ts",
   "scripts": {
-    "build": "esbuild --bundle --format=esm --minify --outfile=lib/index.js src/index.ts",
+    "build": "npm run build:js && npm run build:data && npm run build:types",
+    "build:js": "esbuild --bundle --format=esm --minify --outfile=lib/index.js src/index.ts",
+    "build:data": "mkdir -p data && python3 -m quantops.generate > data/registry.json",
     "build:types": "tsc",
     "build:watch": "esbuild --bundle --format=esm --outfile=lib/index.js --sourcemap --watch src/index.ts"
   },
