@@ -14,5 +14,9 @@ jobs:
         working-directory: ./python
       - run: |
           npm install
+          npm test
+        working-directory: ./python
+      - run: |
+          npm install
           npm run build
         working-directory: ./javascript
