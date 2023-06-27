@@ -33,12 +33,6 @@ prefixes = [
 ]
 
 [[prefix_systems]]
-name = "DeciSI"
-prefixes = [
-  { factor = 1e-1, label = "deci", symbol = "d" }
-]
-
-[[prefix_systems]]
 name = "BinaryMemory"
 prefixes = [
   { factor = 1_024, label = "kibi", symbol = "Ki" },
@@ -260,9 +254,8 @@ symbol = "lm"
 
 [[units]]
 dimensionality = {}
-label = ["bel", "bels"]
-symbol = "B"
-prefixes = ["DeciSI"]
+label = ["decibel", "decibels"]
+symbol = "dB"
 
 [[units]]
 dimensionality = { substance = 1 }
