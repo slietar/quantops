@@ -117,21 +117,19 @@ export class UnitRegistry {
     return [
       this.formatMagnitude(value, resolution, option, { sign: options.sign }),
       ...(!options.skipUnit && (option.assembly.length > 0)
-        ? [
-          '\xa0', // &nbsp;
-          this.formatAssemblyAsReact(option.assembly, {
-            createElement: options.createElement,
-            style: options.style
-          })
-        ] as const
+        ? this.formatAssemblyAndGlueAsReact(option.assembly, {
+          createElement: options.createElement,
+          style: options.style
+        })
         : [[], []] as const)
     ];
   }
 
-  formatAssemblyAsReact<T>(assembly: ConstantAssembly, options: {
+  formatAssemblyAndGlueAsReact<T>(assembly: ConstantAssembly, options: {
     createElement: CreateElementType<T>;
     style?: 'label' | 'symbol' | undefined;
-  }): Node<T> {
+  }): [Node<T>, Node<T>] {
+    let glue = null;
     let output: (Node<T> | string)[] = [];
 
     for (let [index, [unitId, power]] of assembly.entries()) {
@@ -142,15 +140,19 @@ export class UnitRegistry {
       }
 
       let plural = (index < 1) && (power > 0);
+      let assemblyItem;
 
       switch (options.style ?? 'symbol') {
         case 'label':
-          output.push(plural ? unit.label[1] : unit.label[0]);
+          assemblyItem = plural ? unit.label[1] : unit.label[0];
           break;
         case 'symbol':
-          output.push(plural ? unit.symbol[1] : unit.symbol[0]);
+          assemblyItem = plural ? unit.symbol[1] : unit.symbol[0];
           break;
       }
+
+      glue ??= assemblyItem.startsWith('\xb0') ? '' : '\xa0'; // &degree; &nbsp;
+      output.push(assemblyItem);
 
       if ((power !== 1) && ((index < 1) || (power !== -1))) {
         output.push(options.createElement('sup', { key: output.length },
@@ -159,7 +161,14 @@ export class UnitRegistry {
       }
     }
 
-    return output;
+    return [glue ?? '', output];
+  }
+
+  formatAssemblyAsReact<T>(assembly: ConstantAssembly, options: {
+    createElement: CreateElementType<T>;
+    style?: 'label' | 'symbol' | undefined;
+  }): Node<T> {
+    return this.formatAssemblyAndGlueAsReact(assembly, options)[1];
   }
 
   formatAssemblyAsText(assembly: ConstantAssembly, options?: {
