@@ -169,6 +169,15 @@ class Quantity:
 
     raise RuntimeError("No matching context")
 
+  def magnitude_as(self, unit: 'AtomicUnit'):
+    if self.dimensionality != unit.dimensionality:
+      raise ValueError("Operation with different dimensionalities")
+
+    if self.registry is not unit.registry:
+      raise ValueError("Operation with different registries")
+
+    return (self.value - unit.offset) / unit.value
+
   def __hash__(self):
     return hash((frozenset(sorted(self.dimensionality.items())), self.registry, self.value))
 
