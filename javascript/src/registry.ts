@@ -76,10 +76,15 @@ export class UnitRegistry {
     let maxOption = this.findBestVariantOption(max, variant);
 
     let sortedOptions = variant.options.slice().sort((a, b) => (a.value - b.value));
+    let maxOptionIndex = sortedOptions.indexOf(maxOption);
 
     return sortedOptions.slice(
-      sortedOptions.indexOf(minOption),
-      sortedOptions.indexOf(maxOption) + 1
+      // Necessary for cases where the max option is greater than min, e.g. because min is 0
+      Math.min(
+        sortedOptions.indexOf(minOption),
+        maxOptionIndex
+      ),
+      maxOptionIndex + 1
     );
   }
 
@@ -89,7 +94,13 @@ export class UnitRegistry {
       let bValue = Math.abs(value / b.value);
 
       let bool = (v: boolean) => v ? 1 : -1;
-      return (bool(aValue < 1) - bool(bValue < 1)) || (aValue - bValue) * bool(aValue > 1);
+
+      // Prefer:
+      // 1. Values more than 1
+      // 2. If more than 1: low values
+      //    If less than 1: high values
+      // 3. If both values are equal, because value is 0: low values
+      return (bool(aValue < 1) - bool(bValue < 1)) || (aValue - bValue) * bool(aValue > 1) || (a.value - b.value);
     })[0];
   }
 
