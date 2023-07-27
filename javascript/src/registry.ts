@@ -49,6 +49,10 @@ export class UnitRegistry {
     return value * option.value + this.getOptionOffset(option);
   }
 
+  applyResolutionToBound(value: number, resolution: number) {
+    return value + resolution * (value > 0 ? 1 : -1);
+  }
+
   getContext(context: Context | string) {
     return (typeof context === 'string')
       ? this.data.contexts[context]
@@ -70,10 +74,13 @@ export class UnitRegistry {
     }
   }
 
-  filterRangeCompositeUnitFormats(min: number, max: number, context: Context, options: { system: SystemName; }) {
+  filterRangeCompositeUnitFormats(min: number, max: number, context: Context, options: {
+    resolution?: number;
+    system: SystemName;
+  }) {
     let variant = this.findVariant(context, { system: options.system });
-    let minOption = this.findBestVariantOption(min, variant);
-    let maxOption = this.findBestVariantOption(max, variant);
+    let minOption = this.findBestVariantOption(this.applyResolutionToBound(min, options.resolution ?? 0), variant);
+    let maxOption = this.findBestVariantOption(this.applyResolutionToBound(min, options.resolution ?? 0), variant);
 
     let sortedOptions = variant.options.slice().sort((a, b) => (a.value - b.value));
     let maxOptionIndex = sortedOptions.indexOf(maxOption);
@@ -242,9 +249,9 @@ export class UnitRegistry {
 
   formatRangeWithContextAsReact<T>(min: number, max: number, resolution: number, minOption: ContextVariantOption, maxOption: ContextVariantOption, options: { createElement: CreateElementType<T>; }) {
     return [
-      ...this.formatQuantityWithContextAsReact(min, resolution, minOption, { ...options, skipUnit: (maxOption === minOption) }),
+      ...this.formatQuantityWithContextAsReact(this.applyResolutionToBound(min, resolution), resolution, minOption, { ...options, skipUnit: (maxOption === minOption) }),
       ' \u2014 ', // &mdash;
-      ...this.formatQuantityWithContextAsReact(max, resolution, maxOption, options)
+      ...this.formatQuantityWithContextAsReact(this.applyResolutionToBound(max, resolution), resolution, maxOption, options)
     ];
   }
 }
