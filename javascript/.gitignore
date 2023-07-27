@@ -1,5 +1,5 @@
-data
-lib
+/data
+/lib
+/types
 node_modules
 package-lock.json
-types

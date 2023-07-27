@@ -1,19 +1,10 @@
 {
+  "extends": "@slietar/tsconfig/tsconfig.json",
   "compilerOptions": {
-    "declaration": true,
     "declarationDir": "types",
     "emitDeclarationOnly": true,
-    "esModuleInterop": true,
-    "exactOptionalPropertyTypes": true,
-    "forceConsistentCasingInFileNames": true,
     "module": "es2022",
-    "moduleResolution": "node16",
-    "noImplicitOverride": true,
-    "noImplicitReturns": true,
-    "noPropertyAccessFromIndexSignature": true,
-    "skipLibCheck": true,
-    "strict": true,
-    "target": "es2022"
+    "moduleResolution": "node16"
   },
   "include": [
     "src/**/*"

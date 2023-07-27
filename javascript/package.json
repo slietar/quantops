@@ -8,12 +8,13 @@
     "build": "npm run build:data && npm run build:js && npm run build:types",
     "build:js": "esbuild --bundle --format=esm --minify --outfile=lib/index.js src/index.ts",
     "build:js:watch": "esbuild --bundle --format=esm --outfile=lib/index.js --sourcemap --watch src/index.ts",
-    "build:data": "mkdir -p data && python3 -m quantops.generate > data/registry.json",
+    "build:data": "mkdir -p data && cd ../python && python3 -m quantops.generate > ../javascript/data/registry.json",
     "build:types": "tsc"
   },
   "devDependencies": {
+    "@slietar/tsconfig": "^1.0.0",
     "@types/react": "^18.2.6",
-    "esbuild": "^0.17.19",
-    "typescript": "^5.0.4"
+    "esbuild": "^0.18.17",
+    "typescript": "^5.1.6"
   }
 }
