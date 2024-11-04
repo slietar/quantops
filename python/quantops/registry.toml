@@ -1,4 +1,23 @@
 
+## DIMENSIONALITIES ######
+
+[[dimensionalities]]
+name = "distance"
+value = { length = 1 }
+
+[[dimensionalities]]
+name = "duration"
+value = { time = 1 }
+
+[[dimensionalities]]
+name = "mass"
+value = { mass = 1 }
+
+[[dimensionalities]]
+name = "surface"
+value = { length = 2 }
+
+
 ## PREFIX SYSTEMS ########
 
 

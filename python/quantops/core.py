@@ -14,7 +14,7 @@ K = TypeVar('K')
 V = TypeVar('V')
 
 class FrozenDict(dict[K, V], Generic[K, V]):
-  def __hash__(self):
+  def __hash__(self): # type: ignore
     return hash(frozenset(self.items()))
 
   def __repr__(self):
@@ -36,6 +36,7 @@ SUPERSCRIPT_CHARS = {
 }
 
 DimensionName = NewType('DimensionName', str)
+ExtentName = NewType('ExtentName', str)
 ContextName = NewType('ContextName', str)
 PrefixSystemName = NewType('PrefixSystemName', str)
 SystemName = NewType('SystemName', str)
@@ -66,6 +67,10 @@ class RegistryContextData(TypedDict):
   name: ContextName
   variants: list[RegistryContextVariantData]
 
+class RegistryDimensionalityData(TypedDict):
+  name: str
+  value: dict[str, int]
+
 class RegistryPrefixData(TypedDict):
   factor: float
   label: str
@@ -78,7 +83,7 @@ class RegistryPrefixSystemData(TypedDict):
   prefixes: NotRequired[list[RegistryPrefixData]]
 
 class RegistryUnitData(TypedDict):
-  dimensionality: Dimensionality
+  dimensionality: dict[str, int]
   label: str | list[str]
   label_names: NotRequired[list[str]]
   symbol: str | list[str]
@@ -91,6 +96,7 @@ class RegistryUnitData(TypedDict):
 
 class RegistryData(TypedDict):
   contexts: list[RegistryContextData]
+  dimensionalities: list[RegistryDimensionalityData]
   prefix_systems: list[RegistryPrefixSystemData]
   units: list[RegistryUnitData]
 
@@ -137,6 +143,21 @@ def format_quantity(value: float, resolution: float, option: 'ContextVariantOpti
 
   return output
 
+def parse_dimensionality(data: dict[str, int], /):
+  return Dimensionality({ DimensionName(dimension): power for dimension, power in data.items() })
+
+@dataclass(frozen=True, slots=True)
+class LabeledDimensionality:
+  name: ExtentName
+  value: Dimensionality
+
+  @property
+  def quantity_symbol(self):
+    return f'{self.name.capitalize()}Quantity'
+
+  @property
+  def unit_symbol(self):
+    return f'{self.name.capitalize()}Unit'
 
 @final
 @functools.total_ordering
@@ -469,6 +490,8 @@ class UnitRegistry:
   _default: ClassVar[Optional[Self]] = None
 
   _contexts: dict[ContextName, Context]
+  _extents_by_dimensionality: dict[Dimensionality, LabeledDimensionality]
+  _extents_by_name: dict[ExtentName, LabeledDimensionality]
   _unit_groups: dict[str, set[AtomicUnit]]
   _units_by_id: dict[UnitId, AtomicUnit]
   _units_by_name: dict[str, AtomicUnit]
@@ -480,6 +503,8 @@ class UnitRegistry:
     self = super().__new__(cls)
 
     self._contexts = dict()
+    self._extents_by_dimensionality = dict()
+    self._extents_by_name = dict()
     self._unit_groups = dict()
     self._units_by_id = dict()
     self._units_by_name = dict()
@@ -615,7 +640,7 @@ class UnitRegistry:
     for data_unit in data['units']:
       unit_symbol = ensure_tuple(data_unit['symbol'])
       unit = AtomicUnit(
-        dimensionality=Dimensionality({ DimensionName(dimension): power for dimension, power in data_unit['dimensionality'].items() }),
+        dimensionality=parse_dimensionality(data_unit['dimensionality']),
         label=ensure_tuple(data_unit['label']),
         symbol=unit_symbol,
         offset=data_unit.get('offset', 0.0),
@@ -699,6 +724,21 @@ class UnitRegistry:
 
       context_name = ContextName(data_context['name'])
       registry._contexts[context_name] = Context(context_dimensionality, variants, name=context_name)
+
+    for data_dimensionality in data['dimensionalities']:
+      dimensionality = parse_dimensionality(data_dimensionality['value'])
+      name = ExtentName(data_dimensionality['name'])
+
+      if name in registry._extents_by_name:
+        raise ValueError("Duplicate dimensionality name")
+
+      if dimensionality in registry._extents_by_dimensionality:
+        raise ValueError("Duplicate dimensionality")
+
+      dim = LabeledDimensionality(name, dimensionality)
+      registry._extents_by_dimensionality[dimensionality] = dim
+      registry._extents_by_name[name] = dim
+
 
     return registry
 
