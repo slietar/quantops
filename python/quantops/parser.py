@@ -1,4 +1,5 @@
 import ast
+from decimal import Decimal
 import re
 from abc import ABC
 from dataclasses import dataclass, field
@@ -6,7 +7,7 @@ from typing import Literal, Optional, TypeVar
 
 from snaptext import LocatedString, LocationArea
 
-from .core import CompositeUnit, Dimensionality, InvalidUnitNameError, UnitAssembly, UnitAssemblyConstantPart, UnitAssemblyVariablePart, UnitRegistry
+from .core import Unit, Dimensionality, InvalidUnitNameError, UnitAssembly, UnitAssemblyConstantPart, UnitAssemblyVariablePart, UnitRegistry
 
 
 REGEXP_SCALAR = re.compile(r"([+-] *)?(?:\d* *\. *\d+|\d+(?: *\.)?)(?:e([+-])?(\d+))?")
@@ -165,15 +166,15 @@ class TokenWalker:
       power *= self.accept_assembly_power()
 
       if (group := self.registry._unit_groups.get(unit_name)) and variable:
-        variable_part = UnitAssemblyVariablePart(frozenset(group), power)
-        dimensionality *= next(iter(group)).dimensionality ** power
+        variable_part = UnitAssemblyVariablePart(frozenset(group), Decimal(power))
+        dimensionality *= next(iter(group)).dimensionality ** Decimal(power)
       elif (unit := self.registry._units_by_name.get(unit_name)):
         if variable:
-          variable_part = UnitAssemblyVariablePart(frozenset({unit}), power)
+          variable_part = UnitAssemblyVariablePart(frozenset({unit}), Decimal(power))
         else:
-          (after_variable_parts if variable_part else before_variable_parts).append(UnitAssemblyConstantPart(unit, power))
+          (after_variable_parts if variable_part else before_variable_parts).append(UnitAssemblyConstantPart(unit, Decimal(power)))
 
-        dimensionality *= unit.dimensionality ** power
+        dimensionality *= unit.dimensionality ** Decimal(power)
       else:
         raise ParserError("Invalid name", value.area)
 
@@ -239,7 +240,7 @@ class TokenWalker:
       case _:
         return None
 
-  def accept_composite_unit(self) -> Optional[CompositeUnit]:
+  def accept_composite_unit(self) -> Optional[Unit]:
     if isinstance(token := self.pop(), GroupOpenToken):
       self.groups.append(token)
     else:

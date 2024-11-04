@@ -1,14 +1,15 @@
 import functools
 import operator
 import tomllib
+from decimal import Decimal
 from typing import IO, NotRequired, Optional, TypedDict, cast
 
 from snaptext import LocatedString
 
 from .core import (AtomicUnit, ConstantUnitAssembly, Context, ContextName,
                    ContextVariant, ContextVariantOption, Dimensionality,
-                   DimensionName, ExtentName, Extent, SystemName,
-                   UnitAssemblyConstantPart)
+                   DimensionName, Extent, ExtentName, SystemName,
+                   UnitAssemblyConstantPart, UnitRegistry)
 
 
 class RegistryContextVariantData(TypedDict):
@@ -24,7 +25,7 @@ class RegistryDimensionalityData(TypedDict):
   value: dict[str, int]
 
 class RegistryPrefixData(TypedDict):
-  factor: float
+  factor: Decimal
   label: str
   symbol: str
   symbol_names: NotRequired[list[str]]
@@ -43,8 +44,8 @@ class RegistryUnitData(TypedDict):
 
   prefixes: NotRequired[list[str]]
 
-  offset: NotRequired[float]
-  value: NotRequired[float]
+  offset: NotRequired[Decimal]
+  value: NotRequired[Decimal]
 
 class RegistryData(TypedDict):
   contexts: list[RegistryContextData]
@@ -54,13 +55,13 @@ class RegistryData(TypedDict):
 
 
 def load_dimensionality(data: dict[str, int], /):
-  return Dimensionality({ DimensionName(dimension): power for dimension, power in data.items() })
+  return Dimensionality({ DimensionName(dimension): Decimal(power) for dimension, power in data.items() })
 
 
-def load(cls, file: IO[bytes], /):
+def load(cls: type[UnitRegistry], file: IO[bytes], /) -> UnitRegistry:
   from .parser import tokenize
 
-  data = cast(RegistryData, tomllib.load(file))
+  data = cast(RegistryData, tomllib.load(file, parse_float=Decimal))
   # pprint(data)
 
   def ensure_tuple(value: str | list[str], /):
@@ -78,9 +79,9 @@ def load(cls, file: IO[bytes], /):
       dimensionality=load_dimensionality(data_unit['dimensionality']),
       label=ensure_tuple(data_unit['label']),
       symbol=unit_symbol,
-      offset=data_unit.get('offset', 0.0),
+      offset=data_unit.get('offset', Decimal(0.0)),
       registry=registry,
-      value=data_unit.get('value', 1.0)
+      value=data_unit.get('value', Decimal(1.0))
     )
 
     registry._units_by_id[unit.id] = unit
@@ -149,7 +150,7 @@ def load(cls, file: IO[bytes], /):
 
       options = [ContextVariantOption(
         option_assembly,
-        functools.reduce(operator.mul, [part.unit.value ** part.power for part in option_assembly])
+        functools.reduce(operator.mul, [part.unit.value ** Decimal(part.power) for part in option_assembly])
       ) for option_assembly in option_assemblies]
 
       variants.append(ContextVariant(options, systems={ SystemName(name) for name in data_variant.get('systems', [SystemName("SI")]) }))

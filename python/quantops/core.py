@@ -1,3 +1,4 @@
+from decimal import Decimal
 import functools
 import math
 import operator
@@ -33,25 +34,26 @@ PrefixSystemName = NewType('PrefixSystemName', str)
 SystemName = NewType('SystemName', str)
 UnitId = NewType('UnitId', str)
 
-class Dimensionality(FrozenDict[DimensionName, float | int]):
-  def __mul__(self, other: Self, /):
+@final
+class Dimensionality(FrozenDict[DimensionName, Decimal]):
+  def __mul__(self, other: 'Dimensionality', /):
     return self.__class__({
       dimension: power for dimension
         in {*self.keys(), *other.keys()}
-        if (power := self.get(dimension, 0) + other.get(dimension, 0)) != 0
+        if (power := self.get(dimension, Decimal()) + other.get(dimension, Decimal())) != 0
     })
 
-  def __pow__(self, other: float | int, /):
+  def __pow__(self, other: Decimal, /):
     return self.__class__({
       dimension: new_power for dimension, power in self.items() if (new_power := power * other) != 0
     })
 
   def __truediv__(self, other: Self, /):
-    return self * (other ** -1)
+    return self * (other ** Decimal(-1))
 
 
 
-def format_superscript(number: float | int, /):
+def format_superscript(number: Decimal, /):
   return str().join(SUPERSCRIPT_CHARS[digit] for digit in str(number))
 
 def format_assembly(assembly: 'ConstantUnitAssembly', *, style: Literal['label', 'symbol']):
@@ -74,14 +76,14 @@ def format_assembly(assembly: 'ConstantUnitAssembly', *, style: Literal['label',
 
     return output
 
-def format_quantity(value: float, resolution: float, option: 'ContextVariantOption', *, style: Literal['label', 'symbol']):
-  decimal_count = max(0, math.ceil(-math.log10(resolution / option.value))) if (resolution > 0) else None
+def format_quantity(value: Decimal | float, resolution: Decimal | float, option: 'ContextVariantOption', *, style: Literal['label', 'symbol']):
+  decimal_count = max(0, math.ceil(-math.log10(Decimal(resolution) / option.value))) if (resolution > 0) else None
   output = str()
 
   if value < 0:
     output += '-'
 
-  output += format(abs(value / option.value), f".{decimal_count}f" if (decimal_count is not None) else "e")
+  output += format(abs(Decimal(value) / option.value), f".{decimal_count}f" if (decimal_count is not None) else "e")
 
   if option.assembly:
     assembled = format_assembly(option.assembly, style=style)
@@ -106,19 +108,19 @@ class Extent:
   def unit_symbol(self):
     return f'{self.name.capitalize()}Unit'
 
-@final
+
 @functools.total_ordering
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Quantity:
   dimensionality: Dimensionality
   registry: 'UnitRegistry' = field(repr=False)
-  value: float
+  value: Decimal
 
-  def _check_other_dimensionality(self, other: Self, /):
+  def _check_other_dimensionality(self, other: 'Quantity', /):
     if self.dimensionality != other.dimensionality:
       raise ValueError("Operation with different dimensionalities")
 
-  def _check_other_registry(self, other: 'CompositeUnit | Self', /):
+  def _check_other_registry(self, other: 'Unit | Quantity', /):
     if self.registry is not other.registry:
       raise ValueError("Operation with different registries")
 
@@ -146,10 +148,7 @@ class Quantity:
 
     return (self.value - unit.offset) / unit.value
 
-  def __hash__(self):
-    return hash((frozenset(sorted(self.dimensionality.items())), self.registry, self.value))
-
-  def __eq__(self, other: Self, /):
+  def __eq__(self, other: Self, /): # type: ignore
     if not isinstance(other, self.__class__):
       return NotImplemented
 
@@ -161,35 +160,35 @@ class Quantity:
 
     return self.value < other.value
 
-  def __add__(self, other: Self | float | int, /):
+  def __add__(self, other: 'Quantity | float | int', /):
     if isinstance(other, (float, int)):
       return self + self.registry._dimensionless(other)
 
     self._check_other_dimensionality(other)
     self._check_other_registry(other)
 
-    return Quantity(
+    return self.__class__(
       dimensionality=self.dimensionality,
       registry=self.registry,
       value=(self.value + other.value)
     )
 
-  def __mul__(self, other: 'CompositeUnit | Self | float | int', /) -> Self:
-    if isinstance(other, (float, int)):
+  def __mul__(self, other: 'Decimal | Quantity | Unit | float', /) -> 'Quantity':
+    if isinstance(other, (Decimal, float, int)):
       return self * self.registry._dimensionless(other)
 
     self._check_other_registry(other)
 
-    return Quantity(
+    return self.__class__(
       dimensionality=(self.dimensionality * other.dimensionality),
       registry=self.registry,
-      value=(self.value * other.value)
+      value=(self.value * Decimal(other.value))
     )
 
-  def __rmul__(self, other: float | int):
+  def __rmul__(self, other: Decimal | float):
     return self.__mul__(other)
 
-  def __truediv__(self, other: 'CompositeUnit | Self | float | int', /) -> Self:
+  def __truediv__(self, other: 'Unit | Quantity', /) -> 'Quantity':
     if isinstance(other, (float, int)):
       return self / self.registry._dimensionless(other)
 
@@ -198,14 +197,14 @@ class Quantity:
     return Quantity(
       dimensionality=(self.dimensionality / other.dimensionality),
       registry=self.registry,
-      value=(self.value / other.value)
+      value=(self.value / Decimal(other.value))
     )
 
-  def __pow__(self, other: float | int, /):
+  def __pow__(self, other: Decimal | float, /):
     return Quantity(
-      dimensionality=Dimensionality({ dimension: (power * other) for dimension, power in self.dimensionality.items() }),
+      dimensionality=(self.dimensionality ** Decimal(other)),
       registry=self.registry,
-      value=(self.value ** other)
+      value=(self.value ** Decimal(other))
     )
 
   def format(
@@ -239,20 +238,20 @@ class Quantity:
     assembly = ConstantUnitAssembly()
 
     for dimension, power in self.dimensionality.items():
-      unit = next(unit for unit in self.registry._units_by_name.values() if (unit.dimensionality == Dimensionality({ dimension: 1 })) and (unit.offset == 0.0) and (unit.value == 1.0))
+      unit = next(unit for unit in self.registry._units_by_name.values() if (unit.dimensionality == Dimensionality({ dimension: Decimal(1) })) and (unit.offset == 0.0) and (unit.value == 1.0))
       assembly.append(UnitAssemblyConstantPart(unit, power))
 
     assembly = sorted(assembly, key=(lambda part: -part.power))
-    quantity = format_quantity(self.value, 0.0, ContextVariantOption(assembly, 1.0), style='symbol')
+    quantity = format_quantity(self.value, 0.0, ContextVariantOption(assembly, Decimal(1)), style='symbol')
 
     return f"{self.__class__.__name__}({quantity!r})"
 
 
-@dataclass(frozen=True)
-class CompositeUnit:
+@dataclass(frozen=True, slots=True)
+class Unit:
   dimensionality: Dimensionality
   registry: 'UnitRegistry' = field(repr=False)
-  value: float
+  value: Decimal
 
   def find_context(self):
     for context in self.registry._contexts.values():
@@ -262,22 +261,22 @@ class CompositeUnit:
     raise RuntimeError("No matching context")
 
   @overload
-  def __mul__(self, other: Self, /) -> 'CompositeUnit':
+  def __mul__(self, other: 'Unit', /) -> 'Unit':
     ...
 
   @overload
-  def __mul__(self, other: Quantity | float | int, /) -> Quantity:
+  def __mul__(self, other: Decimal | Quantity | float, /) -> Quantity:
     ...
 
-  def __mul__(self, other: Quantity | Self | float | int, /):
-    if isinstance(other, (float, int)):
+  def __mul__(self, other: 'Decimal | Quantity | Unit | float', /):
+    if isinstance(other, (Decimal, float, int)):
       return self * self.registry._dimensionless(other)
 
     if self.registry is not other.registry:
       raise ValueError("Operation with different registries")
 
-    if isinstance(other, CompositeUnit):
-      return CompositeUnit(
+    if isinstance(other, Unit):
+      return Unit(
         dimensionality=(self.dimensionality * other.dimensionality),
         registry=self.registry,
         value=(self.value * other.value)
@@ -287,34 +286,34 @@ class CompositeUnit:
 
 
   @overload
-  def __rmul__(self, other: 'CompositeUnit', /) -> 'CompositeUnit':
+  def __rmul__(self, other: 'Unit', /) -> 'Unit':
     ...
 
   @overload
-  def __rmul__(self, other: Quantity | float | int, /) -> Quantity:
+  def __rmul__(self, other: Decimal | Quantity | float, /) -> Quantity:
     ...
 
-  def __rmul__(self, other: 'CompositeUnit | Quantity | float | int', /):
+  def __rmul__(self, other: 'Decimal | Quantity | Unit | float', /):
     return self * other
 
 
   @overload
-  def __truediv__(self, other: 'CompositeUnit', /) -> 'CompositeUnit':
+  def __truediv__(self, other: 'Unit', /) -> 'Unit':
     ...
 
   @overload
-  def __truediv__(self, other: Quantity | float | int, /) -> Quantity:
+  def __truediv__(self, other: Decimal | Quantity | float, /) -> Quantity:
     ...
 
-  def __truediv__(self, other: 'CompositeUnit | Quantity | float | int', /):
-    if isinstance(other, (float, int)):
+  def __truediv__(self, other: 'Decimal | Quantity | Unit | float', /):
+    if isinstance(other, (Decimal, float, int)):
       return self / (other * self.registry.dimensionless)
 
     if self.registry is not other.registry:
       raise ValueError("Operation with different registries")
 
-    if isinstance(other, CompositeUnit):
-      return CompositeUnit(
+    if isinstance(other, Unit):
+      return Unit(
         dimensionality=(self.dimensionality / other.dimensionality),
         registry=self.registry,
         value=(self.value / other.value)
@@ -323,20 +322,21 @@ class CompositeUnit:
     return other / self
 
 
-  def __pow__(self, other: float | int, /):
-    return CompositeUnit(
-      dimensionality=Dimensionality({ dimension: (power * other) for dimension, power in self.dimensionality.items() }),
+  def __pow__(self, other: Decimal | float, /):
+    other_decimal = Decimal(other)
+
+    return Unit(
+      dimensionality=(self.dimensionality ** other_decimal),
       registry=self.registry,
-      value=(self.value ** other)
+      value=(self.value ** other_decimal)
     )
 
 
-@final
-@dataclass(frozen=True)
-class AtomicUnit(CompositeUnit):
+@dataclass(frozen=True, slots=True)
+class AtomicUnit(Unit):
   dimensionality: Dimensionality
   label: tuple[str, str]
-  offset: float
+  offset: Decimal
   registry: 'UnitRegistry' = field(repr=False)
   symbol: Optional[tuple[str, str]]
 
@@ -344,25 +344,25 @@ class AtomicUnit(CompositeUnit):
   def id(self):
     return UnitId(self.symbol[0] if self.symbol else self.label[0])
 
-  @overload
-  def __mul__(self, other: Self, /) -> 'CompositeUnit':
-    ...
+  # @overload
+  # def __mul__(self, other: 'AtomicUnit', /) -> 'Unit':
+  #   ...
 
-  @overload
-  def __mul__(self, other: Quantity | float | int, /) -> Quantity:
-    ...
+  # @overload
+  # def __mul__(self, other: Quantity | float | int, /) -> Quantity:
+  #   ...
 
-  def __mul__(self, other: Quantity | Self | float | int, /):
-    if isinstance(other, (float, int)) and (self.offset != 0.0):
-      quantity = super().__mul__(other)
+  # def __mul__(self, other: Quantity | Self | float | int, /):
+  #   if isinstance(other, (float, int)) and (self.offset != 0.0):
+  #     quantity = super().__mul__(other)
 
-      return Quantity(
-        dimensionality=self.dimensionality,
-        registry=self.registry,
-        value=(quantity.value + self.offset)
-      )
+  #     return Quantity(
+  #       dimensionality=self.dimensionality,
+  #       registry=self.registry,
+  #       value=(quantity.value + self.offset)
+  #     )
 
-    return super().__mul__(other)
+  #   return super().__mul__(other)
 
   def __repr__(self):
     return f"{self.__class__.__name__}({(self.symbol[0] if self.symbol else self.label[0])!r})"
@@ -373,12 +373,12 @@ class InvalidUnitNameError(Exception):
 @dataclass(frozen=True)
 class UnitAssemblyConstantPart:
   unit: AtomicUnit
-  power: float
+  power: Decimal
 
 @dataclass(frozen=True)
 class UnitAssemblyVariablePart:
   units: frozenset[AtomicUnit]
-  power: float
+  power: Decimal
 
 @dataclass(frozen=True)
 class UnitAssembly:
@@ -391,7 +391,7 @@ ConstantUnitAssembly = list[UnitAssemblyConstantPart]
 @dataclass(frozen=True)
 class ContextVariantOption:
   assembly: ConstantUnitAssembly
-  value: float
+  value: Decimal
 
 @dataclass(frozen=True)
 class ContextVariant:
@@ -463,27 +463,27 @@ class UnitRegistry:
     dimensionless_context = Context(
       dimensionality=Dimensionality(),
       name=dimensionless_context_name,
-      variants=[ContextVariant([ContextVariantOption([], 1.0)], {SystemName("SI")})]
+      variants=[ContextVariant([ContextVariantOption([], Decimal(1))], {SystemName("SI")})]
     )
 
     dimensionless_unit = AtomicUnit(
       dimensionality=Dimensionality(),
       label=("dimensionless", "dimensionless"),
-      offset=0.0,
+      offset=Decimal(),
       registry=self,
       symbol=None,
-      value=1.0
+      value=Decimal(1)
     )
 
     self._contexts[dimensionless_context_name] = dimensionless_context
     self._units_by_id[dimensionless_unit.id] = dimensionless_unit
     self._units_by_name["dimensionless"] = dimensionless_unit
 
-  def _dimensionless(self, value: float):
+  def _dimensionless(self, value: Decimal | float, /):
     return Quantity(
       dimensionality=Dimensionality(),
       registry=self,
-      value=value
+      value=Decimal(value)
     )
 
   def get_context(self, string: Context | str, /):
@@ -525,10 +525,10 @@ class UnitRegistry:
     walker = tokenize(LocatedString(string), self)
     return walker.expect_only(walker.accept_quantity())
 
-  def parse_unit(self, string: CompositeUnit | str, /):
+  def parse_unit(self, string: Unit | str, /):
     from .parser import tokenize
 
-    if isinstance(string, CompositeUnit):
+    if isinstance(string, Unit):
       return string
 
     walker = tokenize(LocatedString(string), self)
@@ -568,12 +568,9 @@ class UnitRegistry:
     return tuple(), dict(_default=(self is self._default))
 
 
-
-
   @classmethod
   def get_default(cls):
-    cls._default = cls._default or cls.load_default()
-    return cls._default
+    return cls._default if cls._default is not None else cls.load_default()
 
   @classmethod
   def load(cls, file: IO[bytes], /):
@@ -586,12 +583,10 @@ class UnitRegistry:
 
 
 QuantityContext = Context
-Unit = CompositeUnit
 
 
 __all__ = [
   'AtomicUnit',
-  'CompositeUnit',
   'Context',
   'Dimensionality',
   'DimensionName',
