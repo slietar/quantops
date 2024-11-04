@@ -2,6 +2,10 @@
 ## DIMENSIONALITIES ######
 
 [[dimensionalities]]
+name = "dimensionless"
+value = {}
+
+[[dimensionalities]]
 name = "distance"
 value = { length = 1 }
 
